@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { PanelLeftClose, PanelLeftOpen, ScanText } from "lucide-react";
 import { navItemsForRole } from "@/lib/navigation";
 import {
+  selectHasHydrated,
   selectSidebarCollapsed,
   useUIStore,
 } from "@/store/ui-store";
@@ -19,10 +20,12 @@ type SidebarProps = {
  * - One vertical icon axis from logo → nav → footer (never re-centers on collapse)
  * - Labels reveal to the right; icons keep the same left offset in both states
  * - Collapse/expand control appears on the logo mark on hover
+ * - Width transition only after hydrate so hard reloads do not animate the shell
  */
 export function Sidebar({ variant = "desktop" }: SidebarProps) {
   const pathname = usePathname();
   const collapsed = useUIStore(selectSidebarCollapsed);
+  const hasHydrated = useUIStore(selectHasHydrated);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const user = useAuthStore(selectAuthUser);
@@ -37,7 +40,12 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
         "group/sidebar flex h-full flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)]",
         isMobile
           ? "h-dvh w-[var(--sidebar-expanded)] shadow-[var(--shadow-elevated)]"
-          : "fixed inset-y-0 left-0 z-40 w-[var(--sidebar-current)] transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+          : [
+              "fixed inset-y-0 left-0 z-40 w-[var(--sidebar-current)]",
+              hasHydrated
+                ? "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                : "",
+            ].join(" "),
       ].join(" ")}
       data-collapsed={isCollapsed ? "true" : "false"}
       aria-label="Primary"
