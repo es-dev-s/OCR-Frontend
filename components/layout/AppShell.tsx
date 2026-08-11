@@ -14,6 +14,11 @@ import {
   syncSidebarDom,
   useUIStore,
 } from "@/store/ui-store";
+import {
+  selectAuthReady,
+  selectAuthUser,
+  useAuthStore,
+} from "@/store/auth-store";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -24,6 +29,9 @@ type AppShellProps = {
 /**
  * Persistent app chrome (sidebar + navbar). Mounted by the (app) route-group
  * layout so client navigations never remount it — only `<main>` page content swaps.
+ *
+ * Chrome stays hidden until auth is ready and a user exists, so unauthenticated
+ * visits never flash the dashboard before redirecting to /login.
  */
 export function AppShell({
   children,
@@ -42,6 +50,15 @@ export function AppShell({
   const hasHydrated = useUIStore(selectHasHydrated);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const setHasHydrated = useUIStore((s) => s.setHasHydrated);
+
+  const authReady = useAuthStore(selectAuthReady);
+  const user = useAuthStore(selectAuthUser);
+  const token = useAuthStore((s) => s.token);
+  const hydrateAuth = useAuthStore((s) => s.hydrate);
+
+  useLayoutEffect(() => {
+    hydrateAuth();
+  }, [hydrateAuth]);
 
   // Before paint: align Zustand with SSR/boot/localStorage so reload never
   // flashes the opposite sidebar width.
@@ -97,6 +114,18 @@ export function AppShell({
     if (!hasHydrated) return;
     syncSidebarDom(collapsed);
   }, [collapsed, hasHydrated]);
+
+  const showChrome = authReady && Boolean(user || token);
+
+  // Neutral canvas while auth resolves or redirect to login is in flight —
+  // never paint sidebar/navbar for anonymous visitors.
+  if (!showChrome) {
+    return (
+      <div className="min-h-dvh bg-[var(--canvas)] text-[var(--ink)]">
+        <AuthGate>{children}</AuthGate>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh bg-[var(--canvas)] text-[var(--ink)]">

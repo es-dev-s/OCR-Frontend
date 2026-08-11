@@ -1,7 +1,19 @@
 import type { AuthUser } from "@/lib/api";
+import { SESSION_FLAG_COOKIE } from "@/lib/auth-session";
 
 const TOKEN_KEY = "ocr_session_token";
 const USER_KEY = "ocr_session_user";
+export { SESSION_FLAG_COOKIE };
+
+/** Presence cookie for Next middleware (not the bearer token). */
+function writeSessionFlag(on: boolean) {
+  if (typeof document === "undefined") return;
+  if (on) {
+    document.cookie = `${SESSION_FLAG_COOKIE}=1; path=/; max-age=604800; SameSite=Lax`;
+  } else {
+    document.cookie = `${SESSION_FLAG_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+  }
+}
 
 export function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -19,6 +31,7 @@ export function setAuthToken(token: string): void {
   } catch {
     // ignore quota / private mode
   }
+  writeSessionFlag(true);
 }
 
 export function getCachedUser(): AuthUser | null {
@@ -41,6 +54,7 @@ export function setCachedUser(user: AuthUser): void {
   } catch {
     // ignore
   }
+  writeSessionFlag(true);
 }
 
 export function clearAuthSession(): void {
@@ -51,6 +65,12 @@ export function clearAuthSession(): void {
   } catch {
     // ignore
   }
+  writeSessionFlag(false);
+}
+
+/** Keep middleware cookie aligned with sessionStorage (call on hydrate). */
+export function syncSessionCookie(): void {
+  writeSessionFlag(Boolean(getAuthToken()));
 }
 
 /** @deprecated use clearAuthSession */

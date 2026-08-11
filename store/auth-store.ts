@@ -7,6 +7,7 @@ import {
   getCachedUser,
   setAuthToken,
   setCachedUser,
+  syncSessionCookie,
 } from "@/lib/auth-token";
 import {
   fetchMe,
@@ -59,6 +60,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       ready: true,
       validating: Boolean(local.token && !local.user),
     });
+    syncSessionCookie();
     if (local.token) {
       void get().revalidate();
     }

@@ -19,11 +19,8 @@ function MainSkeleton() {
 
 /**
  * Gates page content inside the persistent app chrome.
- * Never replaces the sidebar/navbar — only the main content area can show
- * loading states, so a hard reload does not “reload” the shell.
- *
- * Hydration runs in useLayoutEffect so a cached session paints content
- * before the browser’s first paint — no “Redirecting…” flash for signed-in users.
+ * Redirects run in useLayoutEffect (before paint) so guests never see the
+ * dashboard shell flash before /login.
  */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -40,7 +37,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     hydrate();
   }, [hydrate]);
 
-  useEffect(() => {
+  // Before paint: bounce anonymous users off protected routes.
+  useLayoutEffect(() => {
     if (!ready || isPublic) return;
     if (!user && !token) {
       const next = encodeURIComponent(pathname + (window.location.search || ""));
@@ -48,7 +46,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [ready, user, token, isPublic, pathname, router]);
 
-  useEffect(() => {
+  // Signed-in users on /login → workspace (also covered by middleware cookie).
+  useLayoutEffect(() => {
     if (!ready || !isPublic || !user) return;
     router.replace(safeNextDest());
   }, [ready, isPublic, user, router]);
@@ -57,17 +56,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // SSR + first client frame share this skeleton (ready starts false).
   if (!ready) {
     return <MainSkeleton />;
   }
 
-  // Cached user → paint page immediately (revalidate may still run quietly).
   if (user) {
     return <>{children}</>;
   }
 
-  // Token without user yet, or anonymous redirect in flight.
   if (token && validating) {
     return <MainSkeleton />;
   }
