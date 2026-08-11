@@ -828,6 +828,7 @@ export function DocumentsWorkspace() {
     (pending: {
       tempId: string;
       meta: {
+        title?: string;
         client_name: string;
         erp_code: string;
         anzsco?: string;
@@ -840,7 +841,7 @@ export function DocumentsWorkspace() {
       pendingTempRef.current = pending.tempId;
       const row: FileRecord = {
         id: pending.tempId,
-        title: pending.filename,
+        title: pending.meta.title?.trim() || pending.filename,
         original_filename: pending.filename,
         client_name: pending.meta.client_name,
         erp_code: pending.meta.erp_code,
@@ -1171,9 +1172,9 @@ export function DocumentsWorkspace() {
         />
       )}
 
-      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-[var(--border)] px-4 sm:gap-3 sm:px-5">
+      <div className="page-x flex h-14 shrink-0 items-center gap-2.5 border-b border-[var(--border)] sm:gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
-          <label className="relative min-w-0 max-w-xl flex-1">
+          <label className="relative min-w-0 flex-1">
             <span className="pointer-events-none absolute left-2.5 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center text-[var(--muted-soft)]">
               {searchPending ? (
                 <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} />
@@ -1263,7 +1264,7 @@ export function DocumentsWorkspace() {
       {notice && (
         <div
           role="status"
-          className="flex h-11 items-center gap-2.5 border-b border-emerald-200/80 bg-emerald-50/90 px-4 text-[13px] text-emerald-800 sm:px-5"
+          className="page-x flex h-11 items-center gap-2.5 border-b border-emerald-200/80 bg-emerald-50/90 text-[13px] text-emerald-800"
         >
           <span className="min-w-0 flex-1 truncate font-medium tracking-[-0.01em]">
             {notice}
@@ -1304,7 +1305,7 @@ export function DocumentsWorkspace() {
       {error && !listFailed && (
         <div
           role="alert"
-          className="flex h-11 items-center gap-2.5 border-b border-red-200/80 bg-red-50/90 px-4 text-[13px] text-red-700 sm:px-5"
+          className="page-x flex h-11 items-center gap-2.5 border-b border-red-200/80 bg-red-50/90 text-[13px] text-red-700"
         >
           <AlertTriangle className="size-4 shrink-0 text-red-600" strokeWidth={1.75} />
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -1345,62 +1346,64 @@ export function DocumentsWorkspace() {
         className="docs-scroll docs-scroll-stable min-h-0 flex-1 overflow-auto"
       >
         {loading && files.length === 0 ? (
-          <table className="w-full min-w-[68rem] table-fixed border-collapse text-left">
-            <colgroup>
-              <col className="w-[20%]" />
-              <col className="w-[12%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[8%]" />
-              <col className="w-[11%]" />
-              <col className="w-[9%]" />
-            </colgroup>
-            <thead className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]">
-              <tr className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--muted)]">
-                <th className="px-3 py-2.5 font-medium sm:px-4" scope="col">
-                  Name
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Client
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  ERP
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Team
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  ANZSCO
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Status
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Sources
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Uploaded
-                </th>
-                <th className="px-3 py-2.5 font-medium text-right sm:px-4" scope="col">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i} className="border-b border-[var(--border)]">
-                  <td className="px-3 py-3 sm:px-4" colSpan={9}>
-                    <div
-                      className="h-9 animate-pulse rounded-lg bg-[var(--surface-muted)]"
-                      style={{ width: `${72 - (i % 4) * 8}%` }}
-                    />
-                  </td>
+          <div className="workspace-band">
+            <table className="w-full min-w-0 table-fixed border-collapse text-left">
+              <colgroup>
+                <col className="w-[22%]" />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
+                <col className="w-[8%]" />
+                <col className="w-[10%]" />
+                <col className="w-[8%]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]">
+                <tr className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--muted)]">
+                  <th className="page-pl py-2.5 pr-3 font-medium sm:pr-4" scope="col">
+                    Name
+                  </th>
+                  <th className="px-3 py-2.5 font-medium" scope="col">
+                    Client
+                  </th>
+                  <th className="px-3 py-2.5 font-medium" scope="col">
+                    ERP
+                  </th>
+                  <th className="px-3 py-2.5 font-medium" scope="col">
+                    Team
+                  </th>
+                  <th className="px-3 py-2.5 font-medium" scope="col">
+                    ANZSCO
+                  </th>
+                  <th className="px-3 py-2.5 font-medium" scope="col">
+                    Status
+                  </th>
+                  <th className="px-3 py-2.5 font-medium" scope="col">
+                    Sources
+                  </th>
+                  <th className="px-3 py-2.5 font-medium" scope="col">
+                    Uploaded
+                  </th>
+                  <th className="page-pr py-2.5 pl-3 text-right font-medium sm:pl-4" scope="col">
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i} className="border-b border-[var(--border)]">
+                    <td className="page-pl page-pr py-3" colSpan={9}>
+                      <div
+                        className="h-9 animate-pulse rounded-lg bg-[var(--surface-muted)]"
+                        style={{ width: `${72 - (i % 4) * 8}%` }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : listFailed ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
             <span className="mb-3 flex size-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">
@@ -1456,21 +1459,22 @@ export function DocumentsWorkspace() {
             )}
           </div>
         ) : (
-          <table className="w-full min-w-[68rem] table-fixed border-collapse text-left">
+          <div className="workspace-band">
+          <table className="w-full min-w-0 table-fixed border-collapse text-left">
             <colgroup>
-              <col className="w-[20%]" />
+              <col className="w-[22%]" />
               <col className="w-[12%]" />
               <col className="w-[10%]" />
               <col className="w-[10%]" />
               <col className="w-[10%]" />
               <col className="w-[10%]" />
               <col className="w-[8%]" />
-              <col className="w-[11%]" />
-              <col className="w-[9%]" />
+              <col className="w-[10%]" />
+              <col className="w-[8%]" />
             </colgroup>
             <thead className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]">
               <tr className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--muted)]">
-                <th className="px-3 py-2.5 font-medium sm:px-4" scope="col">
+                <th className="page-pl py-2.5 pr-3 font-medium sm:pr-4" scope="col">
                   Name
                 </th>
                 <th className="px-3 py-2.5 font-medium" scope="col">
@@ -1494,7 +1498,7 @@ export function DocumentsWorkspace() {
                 <th className="px-3 py-2.5 font-medium" scope="col">
                   Uploaded
                 </th>
-                <th className="px-3 py-2.5 font-medium text-right sm:px-4" scope="col">
+                <th className="page-pr py-2.5 pl-3 text-right font-medium sm:pl-4" scope="col">
                   Actions
                 </th>
               </tr>
@@ -1541,6 +1545,7 @@ export function DocumentsWorkspace() {
               )}
             </tbody>
           </table>
+          </div>
         )}
 
         {!loading && !listFailed && files.length > 0 && (
@@ -1568,7 +1573,7 @@ export function DocumentsWorkspace() {
       </div>
 
       {!loading && !listFailed && total > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 sm:px-5">
+        <div className="page-x flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] bg-[var(--surface)] py-2.5">
           <p className="text-[12px] tabular-nums text-[var(--muted)]">
             Loaded{" "}
             <span className="font-medium text-[var(--ink)]">

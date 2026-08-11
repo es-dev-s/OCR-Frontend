@@ -28,6 +28,7 @@ export type LoginResponse = {
 };
 
 export type DocumentMetaInput = {
+  /** Preferred PDF title from the PDF Extract title API. */
   title?: string;
   client_name: string;
   erp_code: string;
@@ -364,6 +365,9 @@ export async function uploadFile(
   sources: DocumentSourcesInput,
 ): Promise<UploadResponse> {
   const body = new FormData();
+  if (meta.title?.trim()) {
+    body.append("title", meta.title.trim());
+  }
   body.append("client_name", meta.client_name);
   body.append("erp_code", meta.erp_code);
   body.append("anzsco", meta.anzsco ?? "");

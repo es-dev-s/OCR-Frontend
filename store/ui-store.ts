@@ -2,6 +2,9 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/sidebar-pref";
+
+export { SIDEBAR_COLLAPSED_COOKIE };
 
 /**
  * Isolated UI surface state.
@@ -41,10 +44,19 @@ type HydrationSlice = {
 
 export type UIStore = SidebarSlice & NavbarSlice & HydrationSlice;
 
-/** Sync read so hard reload matches boot-script CSS (no shell width flash). */
-function readSidebarCollapsed(): boolean {
+function writeSidebarCookie(collapsed: boolean) {
+  if (typeof document === "undefined") return;
+  const maxAge = 60 * 60 * 24 * 400; // ~13 months
+  document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${collapsed ? "1" : "0"}; path=/; max-age=${maxAge}; SameSite=Lax`;
+}
+
+/** Sync read so hard reload matches boot-script / SSR CSS (no shell width flash). */
+export function readSidebarCollapsed(): boolean {
   if (typeof window === "undefined") return false;
   try {
+    const fromDom = document.documentElement.dataset.sidebarCollapsed;
+    if (fromDom === "true") return true;
+    if (fromDom === "false") return false;
     const raw = localStorage.getItem("ocr-engine-ui");
     if (!raw) return false;
     const parsed = JSON.parse(raw) as {
@@ -56,7 +68,7 @@ function readSidebarCollapsed(): boolean {
   }
 }
 
-function syncSidebarDom(collapsed: boolean) {
+export function syncSidebarDom(collapsed: boolean) {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.sidebarCollapsed = collapsed
     ? "true"
@@ -65,13 +77,20 @@ function syncSidebarDom(collapsed: boolean) {
     "--sidebar-current",
     collapsed ? "var(--sidebar-collapsed)" : "var(--sidebar-expanded)",
   );
+  writeSidebarCookie(collapsed);
+}
+
+export function markSidebarReady() {
+  if (typeof document === "undefined") return;
+  document.documentElement.dataset.sidebarReady = "true";
 }
 
 export const useUIStore = create<UIStore>()(
   persist(
     (set, get) => ({
-      // Sidebar — layout geometry only (seeded from localStorage on client)
-      sidebarCollapsed: readSidebarCollapsed(),
+      // Always false on SSR so server HTML is stable. Client syncs in
+      // AppShell useLayoutEffect from boot script / localStorage before paint.
+      sidebarCollapsed: false,
       mobileSidebarOpen: false,
       toggleSidebar: () => {
         const next = !get().sidebarCollapsed;
@@ -152,11 +171,8 @@ export const useUIStore = create<UIStore>()(
       partialize: (state) => ({
         sidebarCollapsed: state.sidebarCollapsed,
       }),
-      // Manual rehydrate after mount so boot-script CSS wins on first paint
+      // Manual rehydrate after layout sync so boot CSS wins first paint
       skipHydration: true,
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
-      },
     },
   ),
 );

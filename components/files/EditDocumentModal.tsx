@@ -18,6 +18,7 @@ import {
   type FileRecord,
 } from "@/lib/api";
 import { validateDocumentFile } from "@/lib/files";
+import { detectPdfTitle } from "@/lib/pdfTitle";
 import {
   Field,
   MAX_META,
@@ -98,6 +99,10 @@ export function EditDocumentModal({
   const [compareTarget, setCompareTarget] =
     useState<SideBySideCompareTarget | null>(null);
   const submittingRef = useRef(false);
+  const titleTouchedRef = useRef(false);
+  const titleAbortRef = useRef<AbortController | null>(null);
+  const titleSeqRef = useRef(0);
+  const [titleDetecting, setTitleDetecting] = useState(false);
   const checkAbortRef = useRef<
     Partial<Record<SourceSlotNum, AbortController>>
   >({});
@@ -125,7 +130,11 @@ export function EditDocumentModal({
       setSubmitting(false);
       setProgress(null);
       setCompareTarget(null);
+      setTitleDetecting(false);
       submittingRef.current = false;
+      titleTouchedRef.current = false;
+      titleAbortRef.current?.abort();
+      titleAbortRef.current = null;
       Object.values(checkAbortRef.current).forEach((c) => c?.abort());
       checkAbortRef.current = {};
       return;
@@ -147,7 +156,11 @@ export function EditDocumentModal({
     setHashes(seeded);
     setSubmitting(false);
     setProgress(null);
+    setTitleDetecting(false);
     submittingRef.current = false;
+    titleTouchedRef.current = false;
+    titleAbortRef.current?.abort();
+    titleAbortRef.current = null;
     Object.values(checkAbortRef.current).forEach((c) => c?.abort());
     checkAbortRef.current = {};
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally key on file.id only
@@ -164,6 +177,7 @@ export function EditDocumentModal({
   }, []);
 
   const setTextField = useCallback((key: FieldKey, value: string) => {
+    if (key === "title") titleTouchedRef.current = true;
     const next = value.length > MAX_META ? value.slice(0, MAX_META) : value;
     setForm((prev) => (prev ? { ...prev, [key]: next } : prev));
     setErrors((prev) => {
@@ -171,6 +185,27 @@ export function EditDocumentModal({
       const { [key]: _drop, form: _form, ...rest } = prev;
       return rest;
     });
+  }, []);
+
+  const detectTitleFromFile = useCallback((picked: File) => {
+    if (titleTouchedRef.current) return;
+    titleAbortRef.current?.abort();
+    const controller = new AbortController();
+    titleAbortRef.current = controller;
+    const seq = ++titleSeqRef.current;
+    setTitleDetecting(true);
+    void (async () => {
+      const result = await detectPdfTitle(picked, { signal: controller.signal });
+      if (controller.signal.aborted || seq !== titleSeqRef.current) return;
+      setTitleDetecting(false);
+      if (!result.title || titleTouchedRef.current) return;
+      setForm((prev) => (prev ? { ...prev, title: result.title } : prev));
+      setErrors((prev) => {
+        if (!prev.title) return prev;
+        const { title: _t, ...rest } = prev;
+        return rest;
+      });
+    })();
   }, []);
 
   const onPickSource = useCallback(
@@ -209,6 +244,7 @@ export function EditDocumentModal({
         return rest;
       });
       setChecks((prev) => ({ ...prev, [slot]: { status: "checking" } }));
+      detectTitleFromFile(picked);
 
       const controller = new AbortController();
       checkAbortRef.current[slot] = controller;
@@ -274,7 +310,7 @@ export function EditDocumentModal({
         }
       })();
     },
-    [form, hashes],
+    [form, hashes, detectTitleFromFile],
   );
 
   const validateAll = useCallback((state: FormState): FieldErrors => {
@@ -442,18 +478,38 @@ export function EditDocumentModal({
       <form onSubmit={(e) => void submit(e)} className="space-y-3.5 pb-2" noValidate>
         <div className="grid gap-2.5 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <Field id={ids.title} label="PDF title" required error={errors.title}>
-              <input
-                id={ids.title}
-                name="title"
-                autoComplete="off"
-                className={`${inputClass} ${inputBorder(errors.title)}`}
-                value={form.title}
-                onChange={(e) => setTextField("title", e.target.value)}
-                disabled={submitting}
-                maxLength={MAX_META}
-                aria-invalid={Boolean(errors.title)}
-              />
+            <Field
+              id={ids.title}
+              label="PDF title"
+              required
+              error={errors.title}
+              hint={
+                titleDetecting
+                  ? "Detecting title from the new source…"
+                  : "Auto-filled from a new source via the title API (you can edit)."
+              }
+            >
+              <div className="relative">
+                <input
+                  id={ids.title}
+                  name="title"
+                  autoComplete="off"
+                  className={`${inputClass} ${inputBorder(errors.title)} ${
+                    titleDetecting ? "pr-9" : ""
+                  }`}
+                  value={form.title}
+                  onChange={(e) => setTextField("title", e.target.value)}
+                  disabled={submitting}
+                  maxLength={MAX_META}
+                  aria-invalid={Boolean(errors.title)}
+                />
+                {titleDetecting ? (
+                  <Loader2
+                    className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-[var(--muted)]"
+                    strokeWidth={1.75}
+                  />
+                ) : null}
+              </div>
             </Field>
           </div>
 

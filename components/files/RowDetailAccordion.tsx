@@ -8,6 +8,7 @@ import {
   Eye,
   ExternalLink,
   GitCompare,
+  ListTree,
   Loader2,
   Pencil,
   Plus,
@@ -35,6 +36,10 @@ import {
   peerSlotFromDetail,
   type CompareTarget,
 } from "@/components/files/MatchCompareModal";
+import {
+  FileDetailsModal,
+  type FileDetailsTarget,
+} from "@/components/files/FileDetailsModal";
 
 type RowDetailAccordionProps = {
   file: FileRecord;
@@ -167,6 +172,9 @@ export function RowDetailAccordion({
     null,
   );
   const [dupCompare, setDupCompare] = useState<ReviewCompareTarget | null>(
+    null,
+  );
+  const [detailsTarget, setDetailsTarget] = useState<FileDetailsTarget | null>(
     null,
   );
   const [dupsOpen, setDupsOpen] = useState(false);
@@ -306,6 +314,11 @@ export function RowDetailAccordion({
         open={dupCompare != null}
         target={dupCompare}
         onClose={() => setDupCompare(null)}
+      />
+      <FileDetailsModal
+        open={detailsTarget != null}
+        target={detailsTarget}
+        onClose={() => setDetailsTarget(null)}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-2.5">
@@ -779,6 +792,20 @@ export function RowDetailAccordion({
                           <div className="flex shrink-0 items-center gap-1">
                             <button
                               type="button"
+                              onClick={() =>
+                                setDetailsTarget({ kind: "duplicate", dup })
+                              }
+                              className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-strong)] bg-white px-2 text-[11.5px] font-medium text-[var(--ink)] hover:bg-[var(--surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                              title="View all form and file details"
+                            >
+                              <ListTree
+                                className="size-3.5"
+                                strokeWidth={1.75}
+                              />
+                              Detail
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => openDuplicateCompare(dup)}
                               className="inline-flex h-7 items-center gap-1 rounded-md border border-orange-200 bg-orange-50 px-2 text-[11.5px] font-medium text-orange-800 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
                               title="Compare original (left) with this duplicate (right)"
@@ -881,14 +908,27 @@ export function RowDetailAccordion({
                         ) : null}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openCorpusCompare(m)}
-                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 text-[11.5px] font-medium text-orange-800 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-                    >
-                      <GitCompare className="size-3.5" strokeWidth={1.75} />
-                      Compare
-                    </button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDetailsTarget({ kind: "match", match: m })
+                        }
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-strong)] bg-white px-2 text-[11.5px] font-medium text-[var(--ink)] hover:bg-[var(--surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                        title="View all form and file details"
+                      >
+                        <ListTree className="size-3.5" strokeWidth={1.75} />
+                        Detail
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openCorpusCompare(m)}
+                        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 text-[11.5px] font-medium text-orange-800 hover:bg-orange-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+                      >
+                        <GitCompare className="size-3.5" strokeWidth={1.75} />
+                        Compare
+                      </button>
+                    </div>
                   </li>
                 );
               })}

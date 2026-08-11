@@ -68,7 +68,7 @@ export function Navbar() {
   }, [pathname, closeNavbarOverlays]);
 
   return (
-    <header className="sticky top-0 z-30 flex h-[var(--navbar-height)] shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_86%,transparent)] px-4 backdrop-blur-xl supports-[backdrop-filter]:bg-[color-mix(in_srgb,var(--surface)_72%,transparent)] sm:px-6">
+    <header className="page-x sticky top-0 z-30 flex h-[var(--navbar-height)] shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--surface)_86%,transparent)] backdrop-blur-xl supports-[backdrop-filter]:bg-[color-mix(in_srgb,var(--surface)_72%,transparent)]">
       <button
         type="button"
         onClick={openMobileSidebar}

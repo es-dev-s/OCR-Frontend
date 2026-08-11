@@ -1,39 +1,69 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Navbar } from "@/components/layout/Navbar";
 import { RealtimeProvider } from "@/components/realtime/RealtimeProvider";
 import {
+  markSidebarReady,
+  readSidebarCollapsed,
+  selectHasHydrated,
   selectMobileSidebarOpen,
   selectSidebarCollapsed,
+  syncSidebarDom,
   useUIStore,
 } from "@/store/ui-store";
 
 type AppShellProps = {
   children: React.ReactNode;
+  /** From cookie on the server so SSR HTML matches collapsed preference. */
+  initialSidebarCollapsed?: boolean;
 };
 
 /**
  * Persistent app chrome (sidebar + navbar). Mounted by the (app) route-group
  * layout so client navigations never remount it — only `<main>` page content swaps.
  */
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({
+  children,
+  initialSidebarCollapsed = false,
+}: AppShellProps) {
+  // Seed before first paint/read so SSR + hydration both see the cookie value.
+  if (
+    !useUIStore.getState().hasHydrated &&
+    useUIStore.getState().sidebarCollapsed !== initialSidebarCollapsed
+  ) {
+    useUIStore.setState({ sidebarCollapsed: initialSidebarCollapsed });
+  }
+
   const collapsed = useUIStore(selectSidebarCollapsed);
   const mobileOpen = useUIStore(selectMobileSidebarOpen);
+  const hasHydrated = useUIStore(selectHasHydrated);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const setHasHydrated = useUIStore((s) => s.setHasHydrated);
 
-  useEffect(() => {
-    // Keep DOM CSS vars aligned with persisted preference (boot script already set them).
-    const bootCollapsed =
-      document.documentElement.dataset.sidebarCollapsed === "true";
-    if (bootCollapsed && !useUIStore.getState().sidebarCollapsed) {
-      useUIStore.setState({ sidebarCollapsed: true });
-    }
-    void useUIStore.persist.rehydrate();
-    setHasHydrated(true);
+  // Before paint: align Zustand with SSR/boot/localStorage so reload never
+  // flashes the opposite sidebar width.
+  useLayoutEffect(() => {
+    const preferred = readSidebarCollapsed();
+    useUIStore.setState({ sidebarCollapsed: preferred });
+    syncSidebarDom(preferred);
+
+    let cancelled = false;
+    const finish = () => {
+      if (cancelled) return;
+      const next = useUIStore.getState().sidebarCollapsed;
+      syncSidebarDom(next);
+      setHasHydrated(true);
+      markSidebarReady();
+    };
+
+    void Promise.resolve(useUIStore.persist.rehydrate()).then(finish, finish);
+
+    return () => {
+      cancelled = true;
+    };
   }, [setHasHydrated]);
 
   useEffect(() => {
@@ -62,26 +92,14 @@ export function AppShell({ children }: AppShellProps) {
     return () => media.removeEventListener("change", onChange);
   }, [closeMobileSidebar]);
 
-  // Keep document-level vars in sync so hard reloads and nested layouts match.
+  // Keep document-level vars in sync after hydrate (toggle / persist).
   useEffect(() => {
-    document.documentElement.dataset.sidebarCollapsed = collapsed
-      ? "true"
-      : "false";
-    document.documentElement.style.setProperty(
-      "--sidebar-current",
-      collapsed ? "var(--sidebar-collapsed)" : "var(--sidebar-expanded)",
-    );
-  }, [collapsed]);
-
-  const sidebarWidth = collapsed
-    ? "var(--sidebar-collapsed)"
-    : "var(--sidebar-expanded)";
+    if (!hasHydrated) return;
+    syncSidebarDom(collapsed);
+  }, [collapsed, hasHydrated]);
 
   return (
-    <div
-      className="min-h-dvh bg-[var(--canvas)] text-[var(--ink)]"
-      style={{ "--sidebar-current": sidebarWidth } as React.CSSProperties}
-    >
+    <div className="min-h-dvh bg-[var(--canvas)] text-[var(--ink)]">
       <div className="hidden lg:block">
         <Sidebar variant="desktop" />
       </div>
@@ -114,7 +132,7 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </div>
 
-      <div className="flex h-dvh flex-col lg:pl-[var(--sidebar-current)]">
+      <div className="shell-main flex h-dvh flex-col lg:pl-[var(--sidebar-current)]">
         <Navbar />
         <RealtimeProvider />
         <main className="relative min-h-0 flex-1 overflow-hidden bg-[var(--surface)]">

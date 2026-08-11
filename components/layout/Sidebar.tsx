@@ -43,10 +43,11 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
           : [
               "fixed inset-y-0 left-0 z-40 w-[var(--sidebar-current)]",
               hasHydrated
-                ? "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                ? "transition-[width] duration-[var(--shell-duration)] ease-[var(--shell-ease)] motion-reduce:transition-none"
                 : "",
             ].join(" "),
       ].join(" ")}
+      data-sidebar-desktop={isMobile ? undefined : ""}
       data-collapsed={isCollapsed ? "true" : "false"}
       aria-label="Primary"
     >
@@ -93,6 +94,7 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
           </div>
 
           <div
+            data-sidebar-label=""
             className={[
               "min-w-0 flex-1 overflow-hidden transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
               isCollapsed
@@ -111,6 +113,7 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
           {!isMobile && !isCollapsed && (
             <button
               type="button"
+              data-sidebar-collapse-btn=""
               onClick={toggleSidebar}
               className={[
                 "ml-auto flex size-10 shrink-0 items-center justify-center rounded-[12px]",
@@ -175,6 +178,7 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
               </span>
 
               <span
+                data-sidebar-label=""
                 className={[
                   "truncate pr-3 text-[13.5px] font-medium tracking-[-0.01em]",
                   "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -219,6 +223,7 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
             </span>
           </span>
           <div
+            data-sidebar-label=""
             className={[
               "min-w-0 overflow-hidden transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
               isCollapsed

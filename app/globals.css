@@ -20,6 +20,12 @@
   --sidebar-collapsed: calc(var(--sidebar-inset) * 2 + 2.5rem);
   --sidebar-current: var(--sidebar-expanded);
   --navbar-height: 3.75rem;
+  --shell-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --shell-duration: 300ms;
+
+  /* Fluid gutters — scale with viewport; rows stay edge-to-edge full width */
+  --page-x: clamp(1rem, 1.4vw, 2.5rem);
+  --page-y: clamp(0.75rem, 1vw, 1.25rem);
 
   --shadow-soft: 0 1px 0 rgba(0, 0, 0, 0.02), 0 8px 24px rgba(0, 0, 0, 0.04);
   --shadow-elevated: 0 12px 40px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.04);
@@ -118,4 +124,85 @@ body {
 /* Keep focus rings consistent without jumping content */
 :focus:not(:focus-visible) {
   outline: none;
+}
+
+/* Shared horizontal padding — toolbars and lists stay aligned */
+.page-x {
+  padding-left: var(--page-x);
+  padding-right: var(--page-x);
+}
+
+.page-pl {
+  padding-left: var(--page-x);
+}
+
+.page-pr {
+  padding-right: var(--page-x);
+}
+
+/* Full-width workspace rows — always fill the content pane */
+.workspace-band {
+  width: 100%;
+  max-width: none;
+}
+
+/* Shell content tracks sidebar width without a snap after the sidebar eases */
+.shell-main {
+  transition: padding-left var(--shell-duration) var(--shell-ease);
+}
+
+/*
+ * SSR/boot lock: html[data-sidebar-collapsed] + --sidebar-current are set from
+ * cookie (server) and boot script (client). Keep first paint matched so a
+ * collapsed → reload never expands-then-snaps.
+ */
+@media (min-width: 1024px) {
+  html[data-sidebar-collapsed="true"] .shell-main {
+    padding-left: var(--sidebar-collapsed) !important;
+  }
+
+  html[data-sidebar-collapsed="false"] .shell-main {
+    padding-left: var(--sidebar-expanded) !important;
+  }
+
+  html[data-sidebar-collapsed="true"] [data-sidebar-desktop] {
+    width: var(--sidebar-collapsed) !important;
+  }
+
+  html[data-sidebar-collapsed="false"] [data-sidebar-desktop] {
+    width: var(--sidebar-expanded) !important;
+  }
+
+  html[data-sidebar-collapsed="true"] [data-sidebar-desktop] [data-sidebar-label] {
+    opacity: 0 !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    flex: 0 0 0 !important;
+    transform: translateX(0.25rem) !important;
+    pointer-events: none !important;
+    overflow: hidden !important;
+  }
+
+  html[data-sidebar-collapsed="true"] [data-sidebar-desktop] [data-sidebar-collapse-btn] {
+    display: none !important;
+  }
+}
+
+/* Transitions only after JS marks the shell ready (avoids reload ease). */
+html:not([data-sidebar-ready="true"]) .shell-main,
+html:not([data-sidebar-ready="true"]) [data-sidebar-desktop] {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-main {
+    transition: none;
+  }
+}
+
+/* Neutral main placeholder — same surface as pages (no “Redirecting…” flash) */
+.auth-skeleton {
+  height: 100%;
+  width: 100%;
+  background: var(--surface);
 }

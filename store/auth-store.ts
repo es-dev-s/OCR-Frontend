@@ -39,18 +39,12 @@ let revalidateSeq = 0;
 let revalidateInFlight: Promise<void> | null = null;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  ...(() => {
-    if (typeof window === "undefined") {
-      return { user: null, token: null, ready: true, validating: false };
-    }
-    const local = readLocalSession();
-    return {
-      user: local.user,
-      token: local.token,
-      ready: true,
-      validating: Boolean(local.token && !local.user),
-    };
-  })(),
+  // Always start unread so SSR HTML matches the first client frame.
+  // AuthGate hydrates from sessionStorage in useLayoutEffect (before paint).
+  user: null,
+  token: null,
+  ready: false,
+  validating: false,
 
   setUser: (user) => {
     if (user) setCachedUser(user);

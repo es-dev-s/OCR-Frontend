@@ -121,7 +121,7 @@ function DocumentRowImpl({
           open ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--canvas)]",
         ].join(" ")}
       >
-        <td className="px-3 py-3 sm:px-4">
+        <td className="page-pl py-3 pr-3 sm:pr-4">
           <div className="flex min-w-0 items-center gap-2">
             <span
               className={[
@@ -216,7 +216,7 @@ function DocumentRowImpl({
           </span>
         </td>
         <td
-          className="px-3 py-3 text-right sm:px-4"
+          className="page-pr py-3 pl-3 text-right sm:pl-4"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >

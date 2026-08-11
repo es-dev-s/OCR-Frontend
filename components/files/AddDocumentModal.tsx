@@ -16,6 +16,7 @@ import {
   type UploadResponse,
 } from "@/lib/api";
 import { validateDocumentFile } from "@/lib/files";
+import { detectPdfTitle } from "@/lib/pdfTitle";
 import {
   Field,
   MAX_META,
@@ -90,12 +91,16 @@ export function AddDocumentModal({
     {},
   );
   const [submitting, setSubmitting] = useState(false);
+  const [detectedTitle, setDetectedTitle] = useState("");
+  const [titleDetecting, setTitleDetecting] = useState(false);
   const [compareTarget, setCompareTarget] =
     useState<SideBySideCompareTarget | null>(null);
   const submittingRef = useRef(false);
   const checkAbortRef = useRef<
     Partial<Record<SourceSlotNum, AbortController>>
   >({});
+  const titleAbortRef = useRef<AbortController | null>(null);
+  const titleSeqRef = useRef(0);
   const onClosePropRef = useRef(onClose);
   const onUploadedRef = useRef(onUploaded);
   const onUploadQueuedRef = useRef(onUploadQueued);
@@ -121,17 +126,44 @@ export function AddDocumentModal({
     setChecks(idleChecks());
     setHashes({});
     setSubmitting(false);
+    setDetectedTitle("");
+    setTitleDetecting(false);
     setCompareTarget(null);
     submittingRef.current = false;
+    titleAbortRef.current?.abort();
+    titleAbortRef.current = null;
+    titleSeqRef.current += 1;
     Object.values(checkAbortRef.current).forEach((c) => c?.abort());
     checkAbortRef.current = {};
   }, [open]);
 
-  const autoTitle = useMemo(() => {
-    const first = firstPickedSource(form);
-    if (!first) return "";
-    return titleFromFilename(first.name);
-  }, [form]);
+  const refreshDetectedTitle = useCallback((state: FormState) => {
+    const primary = firstPickedSource(state);
+    titleAbortRef.current?.abort();
+    if (!primary) {
+      setDetectedTitle("");
+      setTitleDetecting(false);
+      return;
+    }
+
+    // Instant filename fallback while the title API runs.
+    setDetectedTitle(titleFromFilename(primary.name));
+    setTitleDetecting(true);
+
+    const controller = new AbortController();
+    titleAbortRef.current = controller;
+    const seq = ++titleSeqRef.current;
+
+    void (async () => {
+      const result = await detectPdfTitle(primary, { signal: controller.signal });
+      if (controller.signal.aborted || seq !== titleSeqRef.current) return;
+      if (result.title) {
+        setDetectedTitle(result.title);
+      }
+      // Keep filename fallback if API returns empty / fails — never blank the field.
+      setTitleDetecting(false);
+    })();
+  }, []);
 
   const openCompare = useCallback(
     (slot: SourceSlotNum, check: DuplicateCheck) => {
@@ -223,7 +255,11 @@ export function AddDocumentModal({
       checkAbortRef.current[slot]?.abort();
 
       if (!file) {
-        setForm((prev) => ({ ...prev, [key]: null }));
+        setForm((prev) => {
+          const next = { ...prev, [key]: null };
+          refreshDetectedTitle(next);
+          return next;
+        });
         setHashes((prev) => {
           const next = { ...prev };
           delete next[slot];
@@ -244,7 +280,11 @@ export function AddDocumentModal({
         return;
       }
 
-      setForm((prev) => ({ ...prev, [key]: file }));
+      setForm((prev) => {
+        const next = { ...prev, [key]: file };
+        refreshDetectedTitle(next);
+        return next;
+      });
       setErrors((prev) => {
         if (!prev.sources && !prev.form) return prev;
         const { sources: _s, form: _f, ...rest } = prev;
@@ -262,7 +302,7 @@ export function AddDocumentModal({
       }
       void runCheck(slot, file, hashes, nextNames, peerFiles);
     },
-    [form, hashes, runCheck],
+    [form, hashes, runCheck, refreshDetectedTitle],
   );
 
   const validateAll = useCallback((state: FormState): FieldErrors => {
@@ -313,14 +353,18 @@ export function AddDocumentModal({
     setSubmitting(true);
     setErrors({});
 
+    const primary = firstPickedSource(form);
+    const resolvedTitle =
+      normalizeMeta(detectedTitle) ||
+      (primary ? titleFromFilename(primary.name) : "");
     const meta: DocumentMetaInput = {
+      title: resolvedTitle,
       client_name: normalizeMeta(form.client_name),
       erp_code: normalizeMeta(form.erp_code),
       anzsco: normalizeMeta(form.anzsco),
       team: normalizeMeta(form.team),
       member: normalizeMeta(form.member),
     };
-    const primary = firstPickedSource(form);
     const tempId =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? `tmp-${crypto.randomUUID()}`
@@ -423,14 +467,30 @@ export function AddDocumentModal({
             <Field
               id={ids.title}
               label="PDF title"
-              hint="Detected from the first uploaded source filename."
+              hint="Detected from the PDF via the title API when you add a source."
             >
               <div
                 id={ids.title}
-                className={`${inputClass} ${inputBorder()} flex items-center text-[var(--muted)]`}
+                className={`${inputClass} ${inputBorder()} flex items-center gap-2 ${
+                  detectedTitle ? "text-[var(--ink)]" : "text-[var(--muted)]"
+                }`}
                 aria-live="polite"
               >
-                {autoTitle || "Upload a source to detect title"}
+                {titleDetecting ? (
+                  <>
+                    <Loader2
+                      className="size-3.5 shrink-0 animate-spin text-[var(--muted)]"
+                      strokeWidth={1.75}
+                    />
+                    <span className="truncate">
+                      {detectedTitle || "Detecting title…"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="truncate">
+                    {detectedTitle || "Upload a source to detect title"}
+                  </span>
+                )}
               </div>
             </Field>
           </div>

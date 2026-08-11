@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useLayoutEffect, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 
@@ -13,10 +13,17 @@ function safeNextDest(): string {
   return "/documents";
 }
 
+function MainSkeleton() {
+  return <div className="auth-skeleton" aria-hidden />;
+}
+
 /**
  * Gates page content inside the persistent app chrome.
  * Never replaces the sidebar/navbar — only the main content area can show
- * redirect/loading states, so a hard reload does not “reload” the shell.
+ * loading states, so a hard reload does not “reload” the shell.
+ *
+ * Hydration runs in useLayoutEffect so a cached session paints content
+ * before the browser’s first paint — no “Redirecting…” flash for signed-in users.
  */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -29,7 +36,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   const isPublic = PUBLIC_PATHS.has(pathname);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     hydrate();
   }, [hydrate]);
 
@@ -50,31 +57,20 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Anonymous — chrome stays mounted; only main shows redirect.
-  if (!user && !token) {
-    return (
-      <div className="flex h-full items-center justify-center bg-[var(--surface)] text-[13px] text-[var(--muted)]">
-        Redirecting…
-      </div>
-    );
+  // SSR + first client frame share this skeleton (ready starts false).
+  if (!ready) {
+    return <MainSkeleton />;
   }
 
-  // Token without cached user yet: keep chrome, show light main placeholder.
-  if (!user && validating) {
-    return (
-      <div className="flex h-full items-center justify-center bg-[var(--surface)] text-[13px] text-[var(--muted)]">
-        Checking session…
-      </div>
-    );
+  // Cached user → paint page immediately (revalidate may still run quietly).
+  if (user) {
+    return <>{children}</>;
   }
 
-  if (!user) {
-    return (
-      <div className="flex h-full items-center justify-center bg-[var(--surface)] text-[13px] text-[var(--muted)]">
-        Redirecting…
-      </div>
-    );
+  // Token without user yet, or anonymous redirect in flight.
+  if (token && validating) {
+    return <MainSkeleton />;
   }
 
-  return <>{children}</>;
+  return <MainSkeleton />;
 }

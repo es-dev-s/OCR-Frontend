@@ -180,7 +180,7 @@ export function ReviewQueuePanel({
     <>
       <section
         aria-label="Duplicate review actions"
-        className="border-b border-[var(--border)] bg-[var(--canvas)] px-4 py-3 sm:px-5"
+        className="page-x border-b border-[var(--border)] bg-[var(--canvas)] py-3"
       >
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <ShieldQuestion

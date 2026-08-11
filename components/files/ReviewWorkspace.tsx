@@ -10,7 +10,6 @@ import {
   Hourglass,
   Loader2,
   RefreshCw,
-  ShieldQuestion,
   Trash2,
   X,
 } from "lucide-react";
@@ -197,28 +196,17 @@ export function ReviewWorkspace({ isAdmin }: Props) {
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-6">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <ShieldQuestion
-                className="size-4 text-[var(--accent)]"
-                strokeWidth={1.75}
-              />
-              <h1 className="text-[15px] font-semibold tracking-[-0.02em] text-[var(--ink)]">
-                Duplicate review
-              </h1>
-            </div>
-            <p className="mt-1 text-[12.5px] text-[var(--muted)]">
-              {isAdmin
-                ? "Approve or reject member duplicate requests, and browse past decisions."
-                : "Request admin review for exact duplicates, and track approvals."}
-            </p>
-          </div>
+        <div className="page-x flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] py-3">
+          <p className="min-w-0 text-[12.5px] text-[var(--muted)]">
+            {isAdmin
+              ? "Approve or reject member duplicate requests, and browse past decisions."
+              : "Request admin review for exact duplicates, and track approvals."}
+          </p>
           <button
             type="button"
             onClick={() => void reload(undefined, true)}
             disabled={loading}
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-white px-3 text-[13px] font-medium text-[var(--ink)] hover:bg-[var(--surface-muted)] disabled:opacity-50"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-white px-3 text-[13px] font-medium text-[var(--ink)] hover:bg-[var(--surface-muted)] disabled:opacity-50"
           >
             {loading ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -229,7 +217,7 @@ export function ReviewWorkspace({ isAdmin }: Props) {
           </button>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border)] px-4 py-2.5 sm:px-6">
+        <div className="page-x flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border)] py-2.5">
           {tabs
             .filter((tab) => !tab.hide)
             .map((tab) => {
@@ -263,7 +251,7 @@ export function ReviewWorkspace({ isAdmin }: Props) {
         </div>
 
         {notice && (
-          <div className="shrink-0 border-b border-emerald-200/80 bg-emerald-50/90 px-4 py-2 text-[13px] text-emerald-800 sm:px-6">
+          <div className="page-x shrink-0 border-b border-emerald-200/80 bg-emerald-50/90 py-2 text-[13px] text-emerald-800">
             {notice}
           </div>
         )}
@@ -271,13 +259,14 @@ export function ReviewWorkspace({ isAdmin }: Props) {
         {error && (
           <div
             role="alert"
-            className="shrink-0 border-b border-red-200/80 bg-red-50/90 px-4 py-2 text-[13px] text-red-700 sm:px-6"
+            className="page-x shrink-0 border-b border-red-200/80 bg-red-50/90 py-2 text-[13px] text-red-700"
           >
             {error}
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
+        <div className="page-x min-h-0 flex-1 overflow-y-auto py-3">
+          <div className="workspace-band">
           {loading && items.length === 0 ? (
             <div className="flex h-40 items-center justify-center gap-2 text-[13px] text-[var(--muted)]">
               <Loader2 className="size-4 animate-spin" />
@@ -297,7 +286,7 @@ export function ReviewWorkspace({ isAdmin }: Props) {
               </p>
             </div>
           ) : (
-            <ul className="space-y-2">
+            <ul className="w-full space-y-2">
               {visible.map((item) => {
                 const chip = reviewStatusChip(item);
                 const busy = busyId === item.id;
@@ -309,9 +298,9 @@ export function ReviewWorkspace({ isAdmin }: Props) {
                 return (
                   <li
                     key={item.id}
-                    className="rounded-2xl border border-[var(--border)] bg-white px-3.5 py-3 shadow-[0_1px_0_rgba(15,23,42,0.02)]"
+                    className="w-full rounded-2xl border border-[var(--border)] bg-white px-3.5 py-3 shadow-[0_1px_0_rgba(15,23,42,0.02)] sm:px-4"
                   >
-                    <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+                    <div className="flex w-full flex-wrap items-start gap-x-3 gap-y-2">
                       <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-[var(--surface-muted)] text-[var(--ink)]">
                         {item.review_status === "approved" ? (
                           <Copy className="size-4" strokeWidth={1.75} />
@@ -515,6 +504,7 @@ export function ReviewWorkspace({ isAdmin }: Props) {
               })}
             </ul>
           )}
+          </div>
         </div>
       </div>
 

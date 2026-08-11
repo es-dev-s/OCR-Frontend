@@ -58,7 +58,7 @@ export default function UsersPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 sm:px-6">
+      <div className="page-x flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] py-3">
         <div>
           <p className="text-[13px] text-[var(--muted)]">
             Admin-only user management
@@ -75,20 +75,29 @@ export default function UsersPage() {
       </div>
 
       {error ? (
-        <div className="mx-4 mt-3 rounded-xl bg-red-50 px-3 py-2 text-[13px] text-red-700 sm:mx-6">
-          {error}
+        <div className="page-x mt-3">
+          <div className="rounded-xl bg-red-50 px-3 py-2 text-[13px] text-red-700">
+            {error}
+          </div>
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 sm:px-6">
+      <div className="page-x min-h-0 flex-1 overflow-auto py-4">
+        <div className="workspace-band">
         {loading ? (
           <div className="flex items-center gap-2 text-[13px] text-[var(--muted)]">
             <Loader2 className="size-4 animate-spin" />
             Loading users…
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
-            <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">
+          <div className="w-full overflow-hidden rounded-2xl border border-[var(--border)]">
+            <table className="w-full table-fixed border-collapse text-left text-[13px]">
+              <colgroup>
+                <col className="w-[40%]" />
+                <col className="w-[15%]" />
+                <col className="w-[15%]" />
+                <col className="w-[30%]" />
+              </colgroup>
               <thead className="bg-[var(--surface-muted)] text-[11.5px] font-semibold uppercase tracking-[0.04em] text-[var(--muted)]">
                 <tr>
                   <th className="px-4 py-3">User</th>
@@ -168,6 +177,7 @@ export default function UsersPage() {
             </table>
           </div>
         )}
+        </div>
       </div>
 
       <CreateUserModal
