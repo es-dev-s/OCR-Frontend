@@ -11,11 +11,13 @@ import {
 import { Loader2, Save } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import {
+  displaySourceTitle,
   displayTitle,
   updateFileMeta,
   updateFileSources,
   type DocumentMetaInput,
   type FileRecord,
+  type MetaProfile,
 } from "@/lib/api";
 import { validateDocumentFile } from "@/lib/files";
 import { detectPdfTitle } from "@/lib/pdfTitle";
@@ -23,9 +25,11 @@ import {
   Field,
   MAX_META,
   SourceSlot,
+  applyMetaProfile,
   inputBorder,
   inputClass,
   normalizeMeta,
+  titleFromFilename,
   validateField,
   type FieldErrors,
   type FieldKey,
@@ -35,6 +39,7 @@ import {
   type SourceSlotNum,
   type TextFields,
 } from "@/components/files/documentFormShared";
+import { MetaSuggestField } from "@/components/files/MetaSuggestField";
 import {
   IntakeCompareModal,
   type SideBySideCompareTarget,
@@ -73,12 +78,28 @@ function formFromFile(file: FileRecord): FormState {
   };
 }
 
-function existingSourceName(
+function existingSourceFilename(
   file: FileRecord,
   slot: SourceSlotNum,
 ): string | null {
   const src = (file.sources ?? []).find((s) => s.slot === slot);
   return src?.original_filename ?? null;
+}
+
+function firstFilledSourceTitle(
+  titles: Partial<Record<SourceSlotNum, string>>,
+  file: FileRecord,
+  form: FormState,
+): string {
+  for (const slot of SOURCE_SLOTS) {
+    const has =
+      Boolean(form[sourceKey(slot)]) ||
+      Boolean(existingSourceFilename(file, slot));
+    if (!has) continue;
+    const t = normalizeMeta(titles[slot] || "");
+    if (t) return t;
+  }
+  return normalizeMeta(displayTitle(file));
 }
 
 export function EditDocumentModal({
@@ -98,12 +119,17 @@ export function EditDocumentModal({
   const [progress, setProgress] = useState<string | null>(null);
   const [compareTarget, setCompareTarget] =
     useState<SideBySideCompareTarget | null>(null);
+  const [sourceTitles, setSourceTitles] = useState<
+    Partial<Record<SourceSlotNum, string>>
+  >({});
+  const [detectingSlots, setDetectingSlots] = useState<
+    Partial<Record<SourceSlotNum, boolean>>
+  >({});
   const submittingRef = useRef(false);
-  const titleTouchedRef = useRef(false);
-  const titleAbortRef = useRef<AbortController | null>(null);
-  const titleSeqRef = useRef(0);
-  const [titleDetecting, setTitleDetecting] = useState(false);
   const checkAbortRef = useRef<
+    Partial<Record<SourceSlotNum, AbortController>>
+  >({});
+  const sourceTitleAbortRef = useRef<
     Partial<Record<SourceSlotNum, AbortController>>
   >({});
   const fileRef = useRef<FileRecord | null>(file);
@@ -130,17 +156,16 @@ export function EditDocumentModal({
       setSubmitting(false);
       setProgress(null);
       setCompareTarget(null);
-      setTitleDetecting(false);
+      setSourceTitles({});
+      setDetectingSlots({});
       submittingRef.current = false;
-      titleTouchedRef.current = false;
-      titleAbortRef.current?.abort();
-      titleAbortRef.current = null;
+      Object.values(sourceTitleAbortRef.current).forEach((c) => c?.abort());
+      sourceTitleAbortRef.current = {};
       Object.values(checkAbortRef.current).forEach((c) => c?.abort());
       checkAbortRef.current = {};
       return;
     }
     if (!file) {
-      // Row disappeared while editing (e.g. deleted elsewhere).
       onCloseRef.current();
       return;
     }
@@ -148,19 +173,23 @@ export function EditDocumentModal({
     setErrors({});
     setChecks(idleChecks());
     const seeded: Partial<Record<SourceSlotNum, string>> = {};
+    const seededTitles: Partial<Record<SourceSlotNum, string>> = {};
     for (const src of file.sources ?? []) {
       if (isSourceSlot(src.slot) && src.sha256_hash) {
         seeded[src.slot] = src.sha256_hash;
       }
+      if (isSourceSlot(src.slot)) {
+        seededTitles[src.slot] = displaySourceTitle(file, src);
+      }
     }
     setHashes(seeded);
+    setSourceTitles(seededTitles);
+    setDetectingSlots({});
     setSubmitting(false);
     setProgress(null);
-    setTitleDetecting(false);
     submittingRef.current = false;
-    titleTouchedRef.current = false;
-    titleAbortRef.current?.abort();
-    titleAbortRef.current = null;
+    Object.values(sourceTitleAbortRef.current).forEach((c) => c?.abort());
+    sourceTitleAbortRef.current = {};
     Object.values(checkAbortRef.current).forEach((c) => c?.abort());
     checkAbortRef.current = {};
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally key on file.id only
@@ -177,7 +206,7 @@ export function EditDocumentModal({
   }, []);
 
   const setTextField = useCallback((key: FieldKey, value: string) => {
-    if (key === "title") titleTouchedRef.current = true;
+    if (key === "title") return;
     const next = value.length > MAX_META ? value.slice(0, MAX_META) : value;
     setForm((prev) => (prev ? { ...prev, [key]: next } : prev));
     setErrors((prev) => {
@@ -187,24 +216,37 @@ export function EditDocumentModal({
     });
   }, []);
 
-  const detectTitleFromFile = useCallback((picked: File) => {
-    if (titleTouchedRef.current) return;
-    titleAbortRef.current?.abort();
+  const applyProfile = useCallback((profile: MetaProfile) => {
+    setForm((prev) => (prev ? applyMetaProfile(prev, profile) : prev));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.client_name;
+      delete next.erp_code;
+      delete next.anzsco;
+      delete next.team;
+      delete next.member;
+      delete next.form;
+      return next;
+    });
+  }, []);
+
+  const detectSlotTitle = useCallback((slot: SourceSlotNum, picked: File) => {
+    sourceTitleAbortRef.current[slot]?.abort();
+    const fallback = titleFromFilename(picked.name);
+    setSourceTitles((prev) => ({ ...prev, [slot]: fallback }));
+    setDetectingSlots((prev) => ({ ...prev, [slot]: true }));
     const controller = new AbortController();
-    titleAbortRef.current = controller;
-    const seq = ++titleSeqRef.current;
-    setTitleDetecting(true);
+    sourceTitleAbortRef.current[slot] = controller;
     void (async () => {
-      const result = await detectPdfTitle(picked, { signal: controller.signal });
-      if (controller.signal.aborted || seq !== titleSeqRef.current) return;
-      setTitleDetecting(false);
-      if (!result.title || titleTouchedRef.current) return;
-      setForm((prev) => (prev ? { ...prev, title: result.title } : prev));
-      setErrors((prev) => {
-        if (!prev.title) return prev;
-        const { title: _t, ...rest } = prev;
-        return rest;
+      const result = await detectPdfTitle(picked, {
+        signal: controller.signal,
       });
+      if (controller.signal.aborted) return;
+      setDetectingSlots((prev) => ({ ...prev, [slot]: false }));
+      setSourceTitles((prev) => ({
+        ...prev,
+        [slot]: result.title || prev[slot] || fallback,
+      }));
     })();
   }, []);
 
@@ -214,7 +256,25 @@ export function EditDocumentModal({
       checkAbortRef.current[slot]?.abort();
 
       if (!picked) {
+        sourceTitleAbortRef.current[slot]?.abort();
         setForm((prev) => (prev ? { ...prev, [key]: null } : prev));
+        setSourceTitles((prev) => {
+          const next = { ...prev };
+          const attached = (fileRef.current?.sources ?? []).find(
+            (s) => s.slot === slot,
+          );
+          if (attached && fileRef.current) {
+            next[slot] = displaySourceTitle(fileRef.current, attached);
+          } else {
+            delete next[slot];
+          }
+          return next;
+        });
+        setDetectingSlots((prev) => {
+          const next = { ...prev };
+          delete next[slot];
+          return next;
+        });
         setHashes((prev) => {
           const next = { ...prev };
           delete next[slot];
@@ -244,7 +304,7 @@ export function EditDocumentModal({
         return rest;
       });
       setChecks((prev) => ({ ...prev, [slot]: { status: "checking" } }));
-      detectTitleFromFile(picked);
+      detectSlotTitle(slot, picked);
 
       const controller = new AbortController();
       checkAbortRef.current[slot] = controller;
@@ -310,32 +370,47 @@ export function EditDocumentModal({
         }
       })();
     },
-    [form, hashes, detectTitleFromFile],
+    [form, hashes, detectSlotTitle],
   );
 
-  const validateAll = useCallback((state: FormState): FieldErrors => {
-    const next: FieldErrors = {};
-    (["title", "client_name", "erp_code", "team", "member", "anzsco"] as FieldKey[]).forEach(
-      (key) => {
-        const msg = validateField(key, state[key]);
-        if (msg) next[key] = msg;
-      },
-    );
-    for (const slot of SOURCE_SLOTS) {
-      const f = state[sourceKey(slot)];
-      if (!f) continue;
-      const msg = validateDocumentFile(f);
-      if (msg) {
-        next.sources = `Source ${slot}: ${msg}`;
-        break;
+  const validateAll = useCallback(
+    (
+      state: FormState,
+      titles: Partial<Record<SourceSlotNum, string>>,
+      current: FileRecord,
+    ): FieldErrors => {
+      const next: FieldErrors = {};
+      (["client_name", "erp_code", "team", "member", "anzsco"] as FieldKey[]).forEach(
+        (key) => {
+          const msg = validateField(key, state[key], { titleRequired: false });
+          if (msg) next[key] = msg;
+        },
+      );
+      for (const slot of SOURCE_SLOTS) {
+        const f = state[sourceKey(slot)];
+        if (f) {
+          const msg = validateDocumentFile(f);
+          if (msg) {
+            next.sources = `Source ${slot}: ${msg}`;
+            break;
+          }
+        }
+        const has =
+          Boolean(f) || Boolean(existingSourceFilename(current, slot));
+        if (!has) continue;
+        if (!normalizeMeta(titles[slot] || "")) {
+          next.sources = `Source ${slot}: PDF title is required`;
+          break;
+        }
       }
-    }
-    return next;
-  }, []);
+      return next;
+    },
+    [],
+  );
 
-  const metaChanged = (state: FormState, current: FileRecord) => {
+  const metaChanged = (state: FormState, current: FileRecord, docTitle: string) => {
     return (
-      normalizeMeta(state.title) !== normalizeMeta(displayTitle(current)) ||
+      normalizeMeta(docTitle) !== normalizeMeta(displayTitle(current)) ||
       normalizeMeta(state.client_name) !== normalizeMeta(current.client_name ?? "") ||
       normalizeMeta(state.erp_code) !== normalizeMeta(current.erp_code ?? "") ||
       normalizeMeta(state.anzsco) !== normalizeMeta(current.anzsco ?? "") ||
@@ -344,17 +419,30 @@ export function EditDocumentModal({
     );
   };
 
+  const sourceTitlesChanged = (
+    titles: Partial<Record<SourceSlotNum, string>>,
+    current: FileRecord,
+  ) => {
+    for (const slot of SOURCE_SLOTS) {
+      const src = (current.sources ?? []).find((s) => s.slot === slot);
+      if (!src) continue;
+      const next = normalizeMeta(titles[slot] || "");
+      const prev = normalizeMeta(src.title || displaySourceTitle(current, src));
+      if (next !== prev) return true;
+    }
+    return false;
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submittingRef.current || checking || !form || !fileRef.current) return;
     const current = fileRef.current;
 
-    const nextErrors = validateAll(form);
+    const nextErrors = validateAll(form, sourceTitles, current);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       const firstKey = Object.keys(nextErrors)[0];
       if (
-        firstKey === "title" ||
         firstKey === "client_name" ||
         firstKey === "erp_code" ||
         firstKey === "anzsco" ||
@@ -366,9 +454,11 @@ export function EditDocumentModal({
       return;
     }
 
+    const docTitle = firstFilledSourceTitle(sourceTitles, current, form);
     const hasSourceUploads = hasAnySource(form);
-    const hasMetaChanges = metaChanged(form, current);
-    if (!hasMetaChanges && !hasSourceUploads) {
+    const hasTitleEdits = sourceTitlesChanged(sourceTitles, current);
+    const hasMetaChanges = metaChanged(form, current, docTitle);
+    if (!hasMetaChanges && !hasSourceUploads && !hasTitleEdits) {
       setErrors({ form: "No changes to save" });
       return;
     }
@@ -385,7 +475,7 @@ export function EditDocumentModal({
       if (hasMetaChanges) {
         setProgress("Saving details…");
         const meta: DocumentMetaInput = {
-          title: normalizeMeta(form.title),
+          title: docTitle,
           client_name: normalizeMeta(form.client_name),
           erp_code: normalizeMeta(form.erp_code),
           anzsco: normalizeMeta(form.anzsco),
@@ -396,18 +486,33 @@ export function EditDocumentModal({
         latest = res.file;
         message = res.message;
         metaSaved = true;
-        // Keep parent list in sync even if a later source upload fails.
         onSavedRef.current(latest, { sourcesChanged: false, message });
       }
 
-      if (hasSourceUploads) {
-        setProgress("Uploading sources…");
-        const res = await updateFileSources(current.id, {
-          source_1: form.source_1,
-          source_2: form.source_2,
-          source_3: form.source_3,
-          source_4: form.source_4,
-        });
+      if (hasSourceUploads || hasTitleEdits) {
+        setProgress(
+          hasSourceUploads ? "Uploading sources…" : "Saving source titles…",
+        );
+        const titles: Partial<Record<SourceSlotNum, string>> = {
+          ...sourceTitles,
+        };
+        for (const slot of SOURCE_SLOTS) {
+          const f = form[sourceKey(slot)];
+          if (!f) continue;
+          if ((titles[slot] || "").trim()) continue;
+          const result = await detectPdfTitle(f);
+          titles[slot] = result.title || titleFromFilename(f.name);
+        }
+        const res = await updateFileSources(
+          current.id,
+          {
+            source_1: form.source_1,
+            source_2: form.source_2,
+            source_3: form.source_3,
+            source_4: form.source_4,
+          },
+          titles,
+        );
         latest = {
           ...res.file,
           title: latest.title || res.file.title,
@@ -447,7 +552,6 @@ export function EditDocumentModal({
   }
 
   const ids = {
-    title: `${baseId}-title`,
     client_name: `${baseId}-client_name`,
     erp_code: `${baseId}-erp_code`,
     anzsco: `${baseId}-anzsco`,
@@ -476,87 +580,94 @@ export function EditDocumentModal({
       wide
     >
       <form onSubmit={(e) => void submit(e)} className="space-y-3.5 pb-2" noValidate>
-        <div className="grid gap-2.5 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <Field
-              id={ids.title}
-              label="PDF title"
-              required
-              error={errors.title}
-              hint={
-                titleDetecting
-                  ? "Detecting title from the new source…"
-                  : "Auto-filled from a new source via the title API (you can edit)."
-              }
-            >
-              <div className="relative">
-                <input
-                  id={ids.title}
-                  name="title"
-                  autoComplete="off"
-                  className={`${inputClass} ${inputBorder(errors.title)} ${
-                    titleDetecting ? "pr-9" : ""
-                  }`}
-                  value={form.title}
-                  onChange={(e) => setTextField("title", e.target.value)}
-                  disabled={submitting}
-                  maxLength={MAX_META}
-                  aria-invalid={Boolean(errors.title)}
-                />
-                {titleDetecting ? (
-                  <Loader2
-                    className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-[var(--muted)]"
-                    strokeWidth={1.75}
-                  />
-                ) : null}
-              </div>
-            </Field>
+        <div>
+          <p className="mb-1.5 text-[12px] font-medium text-[var(--ink)]">
+            Sources{" "}
+            <span className="font-normal text-[var(--muted-soft)]">
+              (up to 4 · each has its own PDF title)
+            </span>
+          </p>
+          <div className="grid items-stretch gap-2 sm:grid-cols-2">
+            {SOURCE_SLOTS.map((slot) => (
+              <SourceSlot
+                key={slot}
+                slot={slot}
+                file={form[sourceKey(slot)]}
+                existingName={existingSourceFilename(file, slot)}
+                titleValue={sourceTitles[slot] || ""}
+                titleDetecting={Boolean(detectingSlots[slot])}
+                disabled={submitting}
+                check={checks[slot]}
+                onPick={(f) => onPickSource(slot, f)}
+                onClear={() => onPickSource(slot, null)}
+                onViewOriginal={
+                  checks[slot].status === "duplicate"
+                    ? () => {
+                        const c = checks[slot];
+                        if (c.status === "duplicate") openCompare(slot, c);
+                      }
+                    : undefined
+                }
+              />
+            ))}
           </div>
+          <p
+            role={errors.sources ? "alert" : undefined}
+            className={[
+              "mt-1.5 h-4 text-[11px]",
+              errors.sources ? "text-red-600" : "text-transparent",
+            ].join(" ")}
+          >
+            {errors.sources || "\u00a0"}
+          </p>
+        </div>
 
+        <div className="grid gap-2.5 sm:grid-cols-2">
           <Field
             id={ids.client_name}
             label="Client name"
             required
             error={errors.client_name}
           >
-            <input
+            <MetaSuggestField
               id={ids.client_name}
               name="client_name"
+              field="client_name"
               autoComplete="organization"
-              className={`${inputClass} ${inputBorder(errors.client_name)}`}
               value={form.client_name}
-              onChange={(e) => setTextField("client_name", e.target.value)}
+              onChange={(v) => setTextField("client_name", v)}
+              onSelectProfile={applyProfile}
               disabled={submitting}
-              maxLength={MAX_META}
+              error={errors.client_name}
               aria-invalid={Boolean(errors.client_name)}
             />
           </Field>
 
           <Field id={ids.erp_code} label="ERP code" required error={errors.erp_code}>
-            <input
+            <MetaSuggestField
               id={ids.erp_code}
               name="erp_code"
-              autoComplete="off"
-              className={`${inputClass} ${inputBorder(errors.erp_code)}`}
+              field="erp_code"
               value={form.erp_code}
-              onChange={(e) => setTextField("erp_code", e.target.value)}
+              onChange={(v) => setTextField("erp_code", v)}
+              onSelectProfile={applyProfile}
               disabled={submitting}
-              maxLength={MAX_META}
+              error={errors.erp_code}
               aria-invalid={Boolean(errors.erp_code)}
             />
           </Field>
 
           <Field id={ids.anzsco} label="ANZSCO" error={errors.anzsco}>
-            <input
+            <MetaSuggestField
               id={ids.anzsco}
               name="anzsco"
-              autoComplete="off"
-              className={`${inputClass} ${inputBorder(errors.anzsco)}`}
+              field="anzsco"
               value={form.anzsco}
-              onChange={(e) => setTextField("anzsco", e.target.value)}
+              onChange={(v) => setTextField("anzsco", v)}
+              onSelectProfile={applyProfile}
               placeholder="Optional"
               disabled={submitting}
-              maxLength={MAX_META}
+              error={errors.anzsco}
             />
           </Field>
 
@@ -589,46 +700,6 @@ export function EditDocumentModal({
               />
             </Field>
           </div>
-        </div>
-
-        <div>
-          <p className="mb-1.5 text-[12px] font-medium text-[var(--ink)]">
-            Sources{" "}
-            <span className="font-normal text-[var(--muted-soft)]">
-              (up to 4 · add or replace · revalidated on save)
-            </span>
-          </p>
-          <div className="grid items-stretch gap-2 sm:grid-cols-2">
-            {SOURCE_SLOTS.map((slot) => (
-              <SourceSlot
-                key={slot}
-                slot={slot}
-                file={form[sourceKey(slot)]}
-                existingName={existingSourceName(file, slot)}
-                disabled={submitting}
-                check={checks[slot]}
-                onPick={(f) => onPickSource(slot, f)}
-                onClear={() => onPickSource(slot, null)}
-                onViewOriginal={
-                  checks[slot].status === "duplicate"
-                    ? () => {
-                        const c = checks[slot];
-                        if (c.status === "duplicate") openCompare(slot, c);
-                      }
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-          <p
-            role={errors.sources ? "alert" : undefined}
-            className={[
-              "mt-1.5 h-4 text-[11px]",
-              errors.sources ? "text-red-600" : "text-transparent",
-            ].join(" ")}
-          >
-            {errors.sources || "\u00a0"}
-          </p>
         </div>
 
         {(errors.form || progress) && (

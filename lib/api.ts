@@ -4,11 +4,12 @@ import {
   SOURCE_SLOTS,
   type DocumentSourcesInput,
   type SourceSlotNum,
+  type SourceTitlesInput,
 } from "@/lib/sources";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
-export type { DocumentSourcesInput, SourceSlotNum };
+export type { DocumentSourcesInput, SourceSlotNum, SourceTitlesInput };
 
 export type AuthUser = {
   id: string;
@@ -37,11 +38,24 @@ export type DocumentMetaInput = {
   member: string;
 };
 
+/** Intake profile returned by meta suggest (autofill). */
+export type MetaProfile = {
+  client_name: string;
+  erp_code: string;
+  anzsco: string;
+  team: string;
+  member: string;
+};
+
+export type MetaSuggestField = "client_name" | "erp_code" | "anzsco";
+
 export type DocumentSource = {
   id: string;
   file_id: string;
   slot: SourceSlotNum | number;
   label: string;
+  /** Extracted PDF title for this source (preferred over filename). */
+  title?: string;
   original_filename: string;
   byte_size: number;
   sha256_hash: string;
@@ -118,12 +132,41 @@ export type FileRecord = {
   uploaded_by?: string;
   uploader_name?: string;
   uploaded_at: string;
+  /** Opaque public link token — anyone with /s/{token} can view this row only. */
+  share_token?: string;
   duplicate_count: number;
+  /** Root documents sharing this client name (case-insensitive). */
+  client_document_count?: number;
   duplicates?: DuplicateRecord[];
   sources?: DocumentSource[];
   source_count?: number;
   /** Lean list flag — true when any source is still validating */
   sources_pending?: boolean;
+};
+
+export type PublicShareSource = {
+  slot: number;
+  label: string;
+  title: string;
+  original_filename: string;
+  byte_size: number;
+};
+
+export type PublicShareRecord = {
+  title: string;
+  original_filename: string;
+  client_name: string;
+  erp_code: string;
+  anzsco: string;
+  team: string;
+  member: string;
+  status: string;
+  status_label: string;
+  byte_size: number;
+  uploaded_at: string;
+  uploader_name?: string;
+  source_count: number;
+  sources: PublicShareSource[];
 };
 
 export type ListFilesResponse = {
@@ -140,6 +183,30 @@ export function displayTitle(file: {
   original_filename: string;
 }): string {
   return (file.title && file.title.trim()) || file.original_filename;
+}
+
+/**
+ * Label for a source row in document details.
+ * Prefer the per-source extracted PDF title; fall back to a humanized filename,
+ * then the parent document title.
+ */
+export function displaySourceTitle(
+  file: { title?: string | null; original_filename: string },
+  source?: { title?: string | null; original_filename?: string | null } | null,
+): string {
+  const sourceTitle = (source?.title || "").trim();
+  if (sourceTitle) return sourceTitle;
+  const filename = (source?.original_filename || "").trim();
+  if (filename) {
+    const base = filename
+      .replace(/\.[^.]+$/, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (base) return base;
+    return filename;
+  }
+  return displayTitle(file) || "—";
 }
 
 export type MatchRecord = {
@@ -277,6 +344,59 @@ export function fileContentURL(id: string): string {
   return withAccessToken(`${API_URL}/api/files/${id}/content`);
 }
 
+/** Unauthenticated public document content (share token only). */
+export function publicShareContentURL(token: string): string {
+  return `${API_URL}/api/public/share/${token}/content`;
+}
+
+export function publicShareSourceContentURL(token: string, slot: number): string {
+  return `${API_URL}/api/public/share/${token}/sources/${slot}/content`;
+}
+
+/**
+ * Fetch a public share payload. Does not use session auth and never redirects
+ * to login — callers handle 404 by sending the user to /login.
+ */
+export async function fetchPublicShare(token: string): Promise<PublicShareRecord> {
+  const res = await fetch(`${API_URL}/api/public/share/${encodeURIComponent(token)}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      typeof data === "object" && data && "error" in data
+        ? String((data as { error?: string }).error || "share not found")
+        : `Request failed (${res.status})`;
+    throw new ApiError(msg, res.status);
+  }
+  return data as PublicShareRecord;
+}
+
+export async function fetchPublicShareContentURL(
+  token: string,
+): Promise<{ url: string; expires_in: number; direct?: boolean }> {
+  const res = await fetch(
+    `${API_URL}/api/public/share/${encodeURIComponent(token)}/content-url`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      typeof data === "object" && data && "error" in data
+        ? String((data as { error?: string }).error || "share not found")
+        : `Request failed (${res.status})`;
+    throw new ApiError(msg, res.status);
+  }
+  return data as { url: string; expires_in: number; direct?: boolean };
+}
+
+
 export function sourceContentURL(
   fileId: string,
   slot: SourceSlotNum | number,
@@ -363,6 +483,7 @@ export async function resetUserPassword(
 export async function uploadFile(
   meta: DocumentMetaInput,
   sources: DocumentSourcesInput,
+  sourceTitles?: SourceTitlesInput,
 ): Promise<UploadResponse> {
   const body = new FormData();
   if (meta.title?.trim()) {
@@ -373,7 +494,7 @@ export async function uploadFile(
   body.append("anzsco", meta.anzsco ?? "");
   body.append("team", meta.team);
   body.append("member", meta.member);
-  appendSourcesToFormData(body, sources);
+  appendSourcesToFormData(body, sources, sourceTitles);
   const res = await fetch(`${API_URL}/api/files/upload`, {
     method: "POST",
     headers: authHeaders(),
@@ -439,6 +560,32 @@ export async function listFiles(opts?: {
   };
 }
 
+/** Case-insensitive typeahead over existing intake profiles. */
+export async function suggestDocumentMeta(opts: {
+  field: MetaSuggestField;
+  q: string;
+  limit?: number;
+  signal?: AbortSignal;
+}): Promise<MetaProfile[]> {
+  const q = opts.q.trim();
+  if (!q) return [];
+  const params = new URLSearchParams({
+    field: opts.field,
+    q,
+  });
+  if (opts.limit != null) params.set("limit", String(opts.limit));
+  const res = await fetch(
+    `${API_URL}/api/files/meta/suggest?${params.toString()}`,
+    {
+      cache: "no-store",
+      headers: authHeaders(),
+      signal: opts.signal,
+    },
+  );
+  const data = await parseJSON<{ suggestions?: MetaProfile[] }>(res);
+  return data.suggestions ?? [];
+}
+
 export async function deleteFile(
   id: string,
 ): Promise<{ id: string; message: string }> {
@@ -490,9 +637,10 @@ export async function updateFileMeta(
 export async function updateFileSources(
   id: string,
   sources: DocumentSourcesInput,
+  sourceTitles?: SourceTitlesInput,
 ): Promise<{ file: FileRecord; message: string }> {
   const body = new FormData();
-  appendSourcesToFormData(body, sources);
+  appendSourcesToFormData(body, sources, sourceTitles);
   const res = await fetch(`${API_URL}/api/files/${id}/sources`, {
     method: "PUT",
     headers: authHeaders(),

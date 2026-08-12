@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { PanelLeftClose, PanelLeftOpen, ScanText } from "lucide-react";
@@ -22,7 +23,7 @@ type SidebarProps = {
  * - Collapse/expand control appears on the logo mark on hover
  * - Width transition only after hydrate so hard reloads do not animate the shell
  */
-export function Sidebar({ variant = "desktop" }: SidebarProps) {
+function SidebarImpl({ variant = "desktop" }: SidebarProps) {
   const pathname = usePathname();
   const collapsed = useUIStore(selectSidebarCollapsed);
   const hasHydrated = useUIStore(selectHasHydrated);
@@ -51,13 +52,12 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
       data-collapsed={isCollapsed ? "true" : "false"}
       aria-label="Primary"
     >
-      {/* Brand row: [logo] [name········] [toggle at trailing edge] */}
       <div className="flex h-[var(--navbar-height)] shrink-0 items-center border-b border-[var(--border)] px-[var(--sidebar-inset)]">
         <div className="flex w-full items-center gap-2.5">
-          {/* Collapsed: hover logo → same-size expand control */}
           <div className="group/logo relative size-10 shrink-0">
             <Link
               href="/documents"
+              prefetch
               onClick={isMobile ? closeMobileSidebar : undefined}
               className={[
                 "flex size-10 items-center justify-center rounded-[12px] bg-[var(--ink)] text-white",
@@ -109,7 +109,6 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
             <p className="truncate text-[11px] text-[var(--muted)]">Document AI</p>
           </div>
 
-          {/* Expanded: minimal toggle flush to the trailing edge of the row */}
           {!isMobile && !isCollapsed && (
             <button
               type="button"
@@ -130,7 +129,6 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
         </div>
       </div>
 
-      {/* Nav — fixed icon column; labels occupy overflow space to the right */}
       <nav
         className="flex flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden px-[var(--sidebar-inset)] py-3"
         aria-label="Main"
@@ -144,6 +142,7 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch
               onClick={isMobile ? closeMobileSidebar : undefined}
               aria-current={active ? "page" : undefined}
               aria-label={item.label}
@@ -156,7 +155,6 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
                   : "text-[var(--muted)] hover:bg-[var(--surface-muted)]/80 hover:text-[var(--ink)]",
               ].join(" ")}
             >
-              {/* Active accent bar — only in expanded for polish; icon-only uses fill */}
               {active && !isCollapsed && (
                 <span
                   className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-[var(--ink)]"
@@ -190,7 +188,6 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
                 {item.label}
               </span>
 
-              {/* Collapsed tooltip */}
               {isCollapsed && (
                 <span
                   className={[
@@ -209,7 +206,6 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
         })}
       </nav>
 
-      {/* Footer — same icon axis as logo/nav */}
       <div className="mt-auto shrink-0 border-t border-[var(--border)] px-[var(--sidebar-inset)] py-3">
         <div
           className={[
@@ -242,3 +238,5 @@ export function Sidebar({ variant = "desktop" }: SidebarProps) {
     </aside>
   );
 }
+
+export const Sidebar = memo(SidebarImpl);

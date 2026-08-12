@@ -4,36 +4,39 @@ import {
   useCallback,
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Upload, Eye, X } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import {
   uploadFile,
   type DocumentMetaInput,
+  type MetaProfile,
   type UploadResponse,
 } from "@/lib/api";
-import { validateDocumentFile } from "@/lib/files";
+import { formatBytes, validateDocumentFile } from "@/lib/files";
 import { detectPdfTitle } from "@/lib/pdfTitle";
 import {
   Field,
   MAX_META,
-  SourceSlot,
+  SOURCE_SLOTS,
+  SourceDropzone,
+  applyMetaProfile,
   inputBorder,
   inputClass,
   normalizeMeta,
   titleFromFilename,
   validateField,
+  validateSources,
   type FieldErrors,
   type FieldKey,
-  SOURCE_SLOTS,
   sourceKey,
   type SourceKey,
   type SourceSlotNum,
   type TextFields,
 } from "@/components/files/documentFormShared";
+import { MetaSuggestField } from "@/components/files/MetaSuggestField";
 import {
   IntakeCompareModal,
   type SideBySideCompareTarget,
@@ -45,11 +48,7 @@ import {
   type DuplicateCheck,
   type SlotChecks,
 } from "@/lib/sourceCheck";
-import {
-  emptySourceFiles,
-  firstPickedSource,
-  hasAnySource,
-} from "@/lib/sources";
+import { emptySourceFiles, SOURCE_SLOT_COUNT } from "@/lib/sources";
 
 type AddDocumentModalProps = {
   open: boolean;
@@ -91,16 +90,22 @@ export function AddDocumentModal({
     {},
   );
   const [submitting, setSubmitting] = useState(false);
-  const [detectedTitle, setDetectedTitle] = useState("");
-  const [titleDetecting, setTitleDetecting] = useState(false);
+  const [sourceTitles, setSourceTitles] = useState<
+    Partial<Record<SourceSlotNum, string>>
+  >({});
+  const [detectingSlots, setDetectingSlots] = useState<
+    Partial<Record<SourceSlotNum, boolean>>
+  >({});
   const [compareTarget, setCompareTarget] =
     useState<SideBySideCompareTarget | null>(null);
   const submittingRef = useRef(false);
   const checkAbortRef = useRef<
     Partial<Record<SourceSlotNum, AbortController>>
   >({});
-  const titleAbortRef = useRef<AbortController | null>(null);
-  const titleSeqRef = useRef(0);
+  const titleAbortBySlotRef = useRef<
+    Partial<Record<SourceSlotNum, AbortController>>
+  >({});
+  const titleSeqBySlotRef = useRef<Partial<Record<SourceSlotNum, number>>>({});
   const onClosePropRef = useRef(onClose);
   const onUploadedRef = useRef(onUploaded);
   const onUploadQueuedRef = useRef(onUploadQueued);
@@ -126,42 +131,40 @@ export function AddDocumentModal({
     setChecks(idleChecks());
     setHashes({});
     setSubmitting(false);
-    setDetectedTitle("");
-    setTitleDetecting(false);
+    setSourceTitles({});
+    setDetectingSlots({});
     setCompareTarget(null);
     submittingRef.current = false;
-    titleAbortRef.current?.abort();
-    titleAbortRef.current = null;
-    titleSeqRef.current += 1;
+    Object.values(titleAbortBySlotRef.current).forEach((c) => c?.abort());
+    titleAbortBySlotRef.current = {};
+    titleSeqBySlotRef.current = {};
     Object.values(checkAbortRef.current).forEach((c) => c?.abort());
     checkAbortRef.current = {};
   }, [open]);
 
-  const refreshDetectedTitle = useCallback((state: FormState) => {
-    const primary = firstPickedSource(state);
-    titleAbortRef.current?.abort();
-    if (!primary) {
-      setDetectedTitle("");
-      setTitleDetecting(false);
-      return;
-    }
-
-    // Instant filename fallback while the title API runs.
-    setDetectedTitle(titleFromFilename(primary.name));
-    setTitleDetecting(true);
+  const detectSlotTitle = useCallback((slot: SourceSlotNum, file: File) => {
+    titleAbortBySlotRef.current[slot]?.abort();
+    const fallback = titleFromFilename(file.name);
+    setSourceTitles((prev) => ({ ...prev, [slot]: fallback }));
+    setDetectingSlots((prev) => ({ ...prev, [slot]: true }));
 
     const controller = new AbortController();
-    titleAbortRef.current = controller;
-    const seq = ++titleSeqRef.current;
+    titleAbortBySlotRef.current[slot] = controller;
+    const seq = (titleSeqBySlotRef.current[slot] ?? 0) + 1;
+    titleSeqBySlotRef.current[slot] = seq;
 
     void (async () => {
-      const result = await detectPdfTitle(primary, { signal: controller.signal });
-      if (controller.signal.aborted || seq !== titleSeqRef.current) return;
-      if (result.title) {
-        setDetectedTitle(result.title);
+      const result = await detectPdfTitle(file, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || titleSeqBySlotRef.current[slot] !== seq) {
+        return;
       }
-      // Keep filename fallback if API returns empty / fails — never blank the field.
-      setTitleDetecting(false);
+      setDetectingSlots((prev) => ({ ...prev, [slot]: false }));
+      setSourceTitles((prev) => ({
+        ...prev,
+        [slot]: result.title || prev[slot] || fallback,
+      }));
     })();
   }, []);
 
@@ -178,10 +181,14 @@ export function AddDocumentModal({
     [form],
   );
 
-  const checking = useMemo(
-    () => SOURCE_SLOTS.some((s) => checks[s].status === "checking"),
-    [checks],
+  const checking = SOURCE_SLOTS.some(
+    (slot) => checks[slot]?.status === "checking",
   );
+
+  const filledSourceCount = SOURCE_SLOTS.filter(
+    (slot) => form[sourceKey(slot)],
+  ).length;
+  const remainingSlots = SOURCE_SLOT_COUNT - filledSourceCount;
 
   const handleClose = useCallback(() => {
     if (submittingRef.current) return;
@@ -196,6 +203,20 @@ export function AddDocumentModal({
       if (!prev[key] && !prev.form) return prev;
       const { [key]: _drop, form: _form, ...rest } = prev;
       return rest;
+    });
+  }, []);
+
+  const applyProfile = useCallback((profile: MetaProfile) => {
+    setForm((prev) => applyMetaProfile(prev, profile));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next.client_name;
+      delete next.erp_code;
+      delete next.anzsco;
+      delete next.team;
+      delete next.member;
+      delete next.form;
+      return next;
     });
   }, []);
 
@@ -250,14 +271,22 @@ export function AddDocumentModal({
   );
 
   const onPickSource = useCallback(
-    (slot: SourceSlotNum, file: File | null) => {
+    (slot: SourceSlotNum, picked: File | null) => {
       const key = sourceKey(slot);
       checkAbortRef.current[slot]?.abort();
 
-      if (!file) {
-        setForm((prev) => {
-          const next = { ...prev, [key]: null };
-          refreshDetectedTitle(next);
+      if (!picked) {
+        titleAbortBySlotRef.current[slot]?.abort();
+        delete titleAbortBySlotRef.current[slot];
+        setForm((prev) => ({ ...prev, [key]: null }));
+        setSourceTitles((prev) => {
+          const next = { ...prev };
+          delete next[slot];
+          return next;
+        });
+        setDetectingSlots((prev) => {
+          const next = { ...prev };
+          delete next[slot];
           return next;
         });
         setHashes((prev) => {
@@ -274,15 +303,81 @@ export function AddDocumentModal({
         return;
       }
 
-      const msg = validateDocumentFile(file);
+      const msg = validateDocumentFile(picked);
       if (msg) {
         setErrors((prev) => ({ ...prev, sources: `Source ${slot}: ${msg}` }));
         return;
       }
 
       setForm((prev) => {
-        const next = { ...prev, [key]: file };
-        refreshDetectedTitle(next);
+        const next = { ...prev, [key]: picked };
+        const nextNames: Partial<Record<SourceSlotNum, string>> = {};
+        const peerFiles: Partial<Record<SourceSlotNum, File | null>> = {};
+        for (const s of SOURCE_SLOTS) {
+          const f = s === slot ? picked : next[sourceKey(s)];
+          peerFiles[s] = f;
+          if (f) nextNames[s] = f.name;
+        }
+        void runCheck(slot, picked, hashes, nextNames, peerFiles);
+        return next;
+      });
+      detectSlotTitle(slot, picked);
+      setErrors((prev) => {
+        if (!prev.sources && !prev.form) return prev;
+        const { sources: _s, form: _f, ...rest } = prev;
+        return rest;
+      });
+      setChecks((prev) => ({ ...prev, [slot]: { status: "checking" } }));
+    },
+    [runCheck, detectSlotTitle, hashes],
+  );
+
+  const onAddFiles = useCallback(
+    (files: File[]) => {
+      if (!files.length) return;
+      const emptySlots = SOURCE_SLOTS.filter((s) => !form[sourceKey(s)]);
+      if (emptySlots.length === 0) {
+        setErrors((prev) => ({
+          ...prev,
+          sources: "All 4 source slots are filled",
+        }));
+        return;
+      }
+
+      let error: string | undefined;
+      const accepted: { slot: SourceSlotNum; file: File }[] = [];
+      for (let i = 0; i < files.length && i < emptySlots.length; i++) {
+        const file = files[i]!;
+        const msg = validateDocumentFile(file);
+        if (msg) {
+          error = `Source ${emptySlots[i]}: ${msg}`;
+          break;
+        }
+        accepted.push({ slot: emptySlots[i]!, file });
+      }
+      if (error) {
+        setErrors((prev) => ({ ...prev, sources: error }));
+        return;
+      }
+      if (accepted.length === 0) return;
+
+      setForm((prev) => {
+        const next = { ...prev };
+        for (const { slot, file } of accepted) {
+          next[sourceKey(slot)] = file;
+        }
+        const nextNames: Partial<Record<SourceSlotNum, string>> = {};
+        const peerFiles: Partial<Record<SourceSlotNum, File | null>> = {};
+        for (const s of SOURCE_SLOTS) {
+          const f = next[sourceKey(s)];
+          peerFiles[s] = f;
+          if (f) nextNames[s] = f.name;
+        }
+        for (const { slot, file } of accepted) {
+          detectSlotTitle(slot, file);
+          setChecks((c) => ({ ...c, [slot]: { status: "checking" } }));
+          void runCheck(slot, file, hashes, nextNames, peerFiles);
+        }
         return next;
       });
       setErrors((prev) => {
@@ -290,44 +385,33 @@ export function AddDocumentModal({
         const { sources: _s, form: _f, ...rest } = prev;
         return rest;
       });
-
-      const peerFiles: Partial<Record<SourceSlotNum, File | null>> = {};
-      for (const s of SOURCE_SLOTS) {
-        peerFiles[s] = s === slot ? file : form[sourceKey(s)];
-      }
-      const nextNames: Partial<Record<SourceSlotNum, string>> = {};
-      for (const s of SOURCE_SLOTS) {
-        const f = peerFiles[s];
-        if (f) nextNames[s] = f.name;
-      }
-      void runCheck(slot, file, hashes, nextNames, peerFiles);
     },
-    [form, hashes, runCheck, refreshDetectedTitle],
+    [form, hashes, runCheck, detectSlotTitle],
   );
 
-  const validateAll = useCallback((state: FormState): FieldErrors => {
-    const next: FieldErrors = {};
-    (
-      ["client_name", "erp_code", "team", "member", "anzsco"] as const
-    ).forEach((key) => {
-      const msg = validateField(key, state[key], { titleRequired: false });
-      if (msg) next[key] = msg;
-    });
-    if (!hasAnySource(state)) {
-      next.sources = "Upload at least one source PDF";
-    } else {
-      for (const slot of SOURCE_SLOTS) {
-        const f = state[sourceKey(slot)];
-        if (!f) continue;
-        const msg = validateDocumentFile(f);
-        if (msg) {
-          next.sources = `Source ${slot}: ${msg}`;
-          break;
-        }
-      }
-    }
-    return next;
-  }, []);
+  const validateAll = useCallback(
+    (state: FormState): FieldErrors => {
+      const next: FieldErrors = {};
+      (
+        ["client_name", "erp_code", "team", "member", "anzsco"] as const
+      ).forEach((key) => {
+        const msg = validateField(key, state[key], { titleRequired: false });
+        if (msg) next[key] = msg;
+      });
+      const sourcesMsg = validateSources(
+        {
+          source_1: state.source_1,
+          source_2: state.source_2,
+          source_3: state.source_3,
+          source_4: state.source_4,
+        },
+        { requireAtLeastOne: true },
+      );
+      if (sourcesMsg) next.sources = sourcesMsg;
+      return next;
+    },
+    [],
+  );
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -353,9 +437,12 @@ export function AddDocumentModal({
     setSubmitting(true);
     setErrors({});
 
-    const primary = firstPickedSource(form);
+    const primary =
+      form.source_1 || form.source_2 || form.source_3 || form.source_4;
+    const primarySlot = (SOURCE_SLOTS.find((s) => form[sourceKey(s)]) ??
+      1) as SourceSlotNum;
     const resolvedTitle =
-      normalizeMeta(detectedTitle) ||
+      normalizeMeta(sourceTitles[primarySlot] || "") ||
       (primary ? titleFromFilename(primary.name) : "");
     const meta: DocumentMetaInput = {
       title: resolvedTitle,
@@ -375,9 +462,17 @@ export function AddDocumentModal({
       source_3: form.source_3,
       source_4: form.source_4,
     };
+    const titlesSnapshot: Partial<Record<SourceSlotNum, string>> = {
+      ...sourceTitles,
+    };
+    for (const slot of SOURCE_SLOTS) {
+      const f = snapshot[sourceKey(slot)];
+      if (!f) continue;
+      if (!(titlesSnapshot[slot] || "").trim()) {
+        titlesSnapshot[slot] = titleFromFilename(f.name);
+      }
+    }
 
-    // Close immediately and paint an optimistic row — the network wait
-    // happens in the background so the modal never feels stuck.
     onUploadQueuedRef.current?.({
       tempId,
       meta,
@@ -388,12 +483,21 @@ export function AddDocumentModal({
     setForm(emptyForm);
     setChecks(idleChecks);
     setHashes({});
+    setSourceTitles({});
+    setDetectingSlots({});
     setSubmitting(false);
     submittingRef.current = false;
 
     void (async () => {
       try {
-        const res = await uploadFile(meta, snapshot);
+        for (const slot of SOURCE_SLOTS) {
+          const f = snapshot[sourceKey(slot)];
+          if (!f) continue;
+          if ((titlesSnapshot[slot] || "").trim()) continue;
+          const result = await detectPdfTitle(f);
+          titlesSnapshot[slot] = result.title || titleFromFilename(f.name);
+        }
+        const res = await uploadFile(meta, snapshot, titlesSnapshot);
         onUploadedRef.current(res);
       } catch (err) {
         onUploadFailedRef.current?.(
@@ -405,7 +509,6 @@ export function AddDocumentModal({
   };
 
   const ids = {
-    title: `${baseId}-title`,
     client_name: `${baseId}-client_name`,
     erp_code: `${baseId}-erp_code`,
     anzsco: `${baseId}-anzsco`,
@@ -419,7 +522,7 @@ export function AddDocumentModal({
       open={open}
       onClose={handleClose}
       title="Add document"
-      description="Upload sources first, then complete intake details."
+      description="Upload 1–4 source PDFs, then complete intake details."
       wide
     >
       <form onSubmit={(e) => void submit(e)} className="space-y-3.5 pb-2" noValidate>
@@ -427,29 +530,95 @@ export function AddDocumentModal({
           <p className="mb-1.5 text-[12px] font-medium text-[var(--ink)]">
             Sources{" "}
             <span className="font-normal text-[var(--muted-soft)]">
-              (up to 4 · at least one required)
+              (required · up to 4 · {filledSourceCount}/4)
             </span>
           </p>
-          <div className="grid items-stretch gap-2 sm:grid-cols-2">
-            {SOURCE_SLOTS.map((slot) => (
-              <SourceSlot
-                key={slot}
-                slot={slot}
-                file={form[sourceKey(slot)]}
-                disabled={submitting}
-                check={checks[slot]}
-                onPick={(f) => onPickSource(slot, f)}
-                onClear={() => onPickSource(slot, null)}
-                onViewOriginal={
-                  checks[slot].status === "duplicate"
-                    ? () => {
-                        const c = checks[slot];
-                        if (c.status === "duplicate") openCompare(slot, c);
-                      }
-                    : undefined
-                }
-              />
-            ))}
+          <div className="space-y-2">
+            <SourceDropzone
+              disabled={submitting}
+              remaining={remainingSlots}
+              onPickMany={onAddFiles}
+            />
+            {filledSourceCount > 0 ? (
+              <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--canvas)]">
+                {SOURCE_SLOTS.map((slot) => {
+                  const file = form[sourceKey(slot)];
+                  if (!file) return null;
+                  const check = checks[slot];
+                  const detecting = Boolean(detectingSlots[slot]);
+                  const title =
+                    (sourceTitles[slot] || "").trim() ||
+                    titleFromFilename(file.name);
+                  const status = (() => {
+                    if (detecting) return { label: "Detecting…", tone: "text-[var(--muted)]", spin: true };
+                    if (check?.status === "checking")
+                      return { label: "Checking…", tone: "text-[#3b5bcc]", spin: true };
+                    if (check?.status === "duplicate")
+                      return {
+                        label: check.near ? "Near match" : "Duplicate",
+                        tone: "text-orange-800",
+                        spin: false,
+                      };
+                    if (check?.status === "error")
+                      return { label: "Check failed", tone: "text-red-600", spin: false };
+                    if (check?.status === "unique")
+                      return { label: "Ready", tone: "text-emerald-700", spin: false };
+                    return { label: "Selected", tone: "text-[var(--muted)]", spin: false };
+                  })();
+                  return (
+                    <li
+                      key={slot}
+                      className="flex items-start gap-3 px-3 py-2.5"
+                    >
+                      <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-white text-[11px] font-semibold tabular-nums text-[var(--muted)] ring-1 ring-[var(--border)]">
+                        {slot}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="truncate text-[13px] font-medium text-[var(--ink)]"
+                          title={title}
+                        >
+                          {title}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11.5px] text-[var(--muted)]">
+                          {file.name}
+                          <span className="mx-1.5 text-[var(--border-strong)]">·</span>
+                          <span className="tabular-nums">{formatBytes(file.size)}</span>
+                        </p>
+                        <p className={`mt-1 inline-flex items-center gap-1 text-[11px] font-medium ${status.tone}`}>
+                          {status.spin ? (
+                            <Loader2 className="size-3 animate-spin" strokeWidth={1.75} />
+                          ) : null}
+                          {status.label}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {check?.status === "duplicate" ? (
+                          <button
+                            type="button"
+                            onClick={() => openCompare(slot, check)}
+                            className="inline-flex h-7 items-center gap-1 rounded-lg px-1.5 text-[11.5px] font-medium text-orange-800 hover:bg-orange-50"
+                            title="Compare with matched original"
+                          >
+                            <Eye className="size-3.5" strokeWidth={1.75} />
+                            Compare
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={submitting}
+                          onClick={() => onPickSource(slot, null)}
+                          className="inline-flex size-7 items-center justify-center rounded-lg text-[var(--muted)] hover:bg-white hover:text-[var(--ink)] disabled:opacity-50"
+                          aria-label={`Remove source ${slot}`}
+                        >
+                          <X className="size-3.5" strokeWidth={1.75} />
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
           </div>
           <p
             role={errors.sources ? "alert" : undefined}
@@ -463,84 +632,53 @@ export function AddDocumentModal({
         </div>
 
         <div className="grid gap-2.5 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <Field
-              id={ids.title}
-              label="PDF title"
-              hint="Detected from the PDF via the title API when you add a source."
-            >
-              <div
-                id={ids.title}
-                className={`${inputClass} ${inputBorder()} flex items-center gap-2 ${
-                  detectedTitle ? "text-[var(--ink)]" : "text-[var(--muted)]"
-                }`}
-                aria-live="polite"
-              >
-                {titleDetecting ? (
-                  <>
-                    <Loader2
-                      className="size-3.5 shrink-0 animate-spin text-[var(--muted)]"
-                      strokeWidth={1.75}
-                    />
-                    <span className="truncate">
-                      {detectedTitle || "Detecting title…"}
-                    </span>
-                  </>
-                ) : (
-                  <span className="truncate">
-                    {detectedTitle || "Upload a source to detect title"}
-                  </span>
-                )}
-              </div>
-            </Field>
-          </div>
-
           <Field
             id={ids.client_name}
             label="Client name"
             required
             error={errors.client_name}
           >
-            <input
+            <MetaSuggestField
               id={ids.client_name}
               name="client_name"
+              field="client_name"
               autoComplete="organization"
-              className={`${inputClass} ${inputBorder(errors.client_name)}`}
               value={form.client_name}
-              onChange={(e) => setTextField("client_name", e.target.value)}
+              onChange={(v) => setTextField("client_name", v)}
+              onSelectProfile={applyProfile}
               placeholder="Client full name"
               disabled={submitting}
-              maxLength={MAX_META}
+              error={errors.client_name}
               aria-invalid={Boolean(errors.client_name)}
             />
           </Field>
 
           <Field id={ids.erp_code} label="ERP code" required error={errors.erp_code}>
-            <input
+            <MetaSuggestField
               id={ids.erp_code}
               name="erp_code"
-              autoComplete="off"
-              className={`${inputClass} ${inputBorder(errors.erp_code)}`}
+              field="erp_code"
               value={form.erp_code}
-              onChange={(e) => setTextField("erp_code", e.target.value)}
+              onChange={(v) => setTextField("erp_code", v)}
+              onSelectProfile={applyProfile}
               placeholder="e.g. ERP-10234"
               disabled={submitting}
-              maxLength={MAX_META}
+              error={errors.erp_code}
               aria-invalid={Boolean(errors.erp_code)}
             />
           </Field>
 
           <Field id={ids.anzsco} label="ANZSCO" error={errors.anzsco}>
-            <input
+            <MetaSuggestField
               id={ids.anzsco}
               name="anzsco"
-              autoComplete="off"
-              className={`${inputClass} ${inputBorder(errors.anzsco)}`}
+              field="anzsco"
               value={form.anzsco}
-              onChange={(e) => setTextField("anzsco", e.target.value)}
+              onChange={(v) => setTextField("anzsco", v)}
+              onSelectProfile={applyProfile}
               placeholder="Optional"
               disabled={submitting}
-              maxLength={MAX_META}
+              error={errors.anzsco}
             />
           </Field>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { Bell, Menu, Search } from "lucide-react";
 import { getPageTitle } from "@/lib/navigation";
@@ -27,11 +27,12 @@ function initials(name: string, email: string): string {
   return (email.slice(0, 2) || "U").toUpperCase();
 }
 
-export function Navbar() {
+function NavbarImpl() {
   const pathname = usePathname();
   const title = getPageTitle(pathname);
   const user = useAuthStore(selectAuthUser);
   const unreadCount = useNotificationsStore((s) => s.unreadCount);
+  const live = useNotificationsStore((s) => s.live);
 
   const searchOpen = useUIStore(selectSearchOpen);
   const userMenuOpen = useUIStore(selectUserMenuOpen);
@@ -50,7 +51,6 @@ export function Navbar() {
   const notifyTriggerRef = useRef<HTMLButtonElement>(null);
   const userTriggerRef = useRef<HTMLButtonElement>(null);
 
-  // Global shortcut — only toggles search; never touches sidebar
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -62,7 +62,7 @@ export function Navbar() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [toggleSearch]);
 
-  // Route change closes overlays only
+  // Route change closes overlays only — does not remount chrome.
   useEffect(() => {
     closeNavbarOverlays();
   }, [pathname, closeNavbarOverlays]);
@@ -121,7 +121,9 @@ export function Navbar() {
           aria-label={
             unreadCount > 0
               ? `Notifications, ${unreadCount} unread`
-              : "Notifications"
+              : live
+                ? "Notifications, live"
+                : "Notifications"
           }
           aria-expanded={notificationsOpen}
           aria-haspopup="dialog"
@@ -132,6 +134,12 @@ export function Navbar() {
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
+          {live && unreadCount === 0 ? (
+            <span
+              className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-emerald-500"
+              aria-hidden
+            />
+          ) : null}
         </button>
 
         <button
@@ -172,3 +180,5 @@ export function Navbar() {
     </header>
   );
 }
+
+export const Navbar = memo(NavbarImpl);

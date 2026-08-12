@@ -1,23 +1,14 @@
-import { cookies } from "next/headers";
 import { AppShell } from "@/components/layout/AppShell";
-import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/sidebar-pref";
 
 /**
- * Authenticated workspace chrome. This layout stays mounted across
- * /documents, /review, /users — only the page segment inside <main> changes.
+ * Authenticated workspace chrome. Kept static (no cookies()/headers()) so
+ * Next.js does not dynamically re-render this layout on every navigation —
+ * AppShell stays mounted and only the page segment inside <main> swaps.
  */
-export default async function AppWorkspaceLayout({
+export default function AppWorkspaceLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const jar = await cookies();
-  const initialSidebarCollapsed =
-    jar.get(SIDEBAR_COLLAPSED_COOKIE)?.value === "1";
-
-  return (
-    <AppShell initialSidebarCollapsed={initialSidebarCollapsed}>
-      {children}
-    </AppShell>
-  );
+  return <AppShell>{children}</AppShell>;
 }

@@ -41,65 +41,72 @@ export function validateDocumentFile(file: File): string | null {
   return null;
 }
 
-export function statusMeta(file: FileRecord): { label: string; className: string } {
-  // Nested rows (member view) are duplicates of another document — say so
-  // instead of a generic "Completed".
-  if (file.parent_file_id) {
-    return {
-      label: "Duplicate",
-      className: "bg-[var(--accent-soft)] text-[var(--accent)]",
-    };
-  }
-  const label =
-    file.status_label ||
-    (file.status === "uploading"
-      ? "Uploading"
-      : file.status === "failed"
-      ? "Failed"
-      : file.status === "pending"
-        ? "Processing"
-        : file.status === "tier1_done"
-          ? "Tier 1 complete"
-          : file.status === "tier2_done"
-            ? "Deep Scan complete"
-            : file.status === "duplicate"
-              ? "Duplicate"
-              : file.status === "ocr_unavailable"
-                ? "OCR unavailable"
-                : file.status === "ocr_no_text"
-                  ? "No readable text"
-                  : "Completed");
+const STATUS_PILL = {
+  processing: "bg-[#eef4ff] text-[#3b5bcc]",
+  completed: "bg-[#e8f4fc] text-[#1d6fb8]",
+  duplicate: "bg-orange-50 text-orange-800",
+} as const;
 
-  if (file.status === "uploading" || label === "Uploading") {
-    return { label: "Uploading", className: "bg-[#eff6ff] text-[#1d4ed8]" };
+/**
+ * Document table / detail status pill.
+ * Primary states users should distinguish: Processing, Completed, Duplicate.
+ * OCR failure is not the product SoT — uploaded PDFs show as Completed.
+ */
+export function statusMeta(file: FileRecord): { label: string; className: string } {
+  if (file.status === "uploading") {
+    return { label: "Processing", className: STATUS_PILL.processing };
   }
-  if (label === "Failed" || file.status === "failed") {
-    return { label, className: "bg-[#fff1f0] text-[#b42318]" };
+
+  // This row is itself a nested / approved duplicate of another document.
+  if (file.parent_file_id) {
+    return { label: "Duplicate", className: STATUS_PILL.duplicate };
   }
-  if (file.status === "ocr_unavailable" || file.status === "ocr_no_text") {
-    return { label, className: "bg-[#fffaeb] text-[#b54708]" };
-  }
+
+  const dupCount = file.duplicate_count ?? file.duplicates?.length ?? 0;
+  const hasDuplicates = dupCount > 0 || file.status === "duplicate";
+  const uploaded =
+    (file.byte_size ?? 0) > 0 ||
+    (file.source_count ?? file.sources?.length ?? 0) > 0 ||
+    Boolean(file.storage_path);
+
+  // Still in the upload / source-check pipeline.
   if (
-    label === "Processing" ||
     file.status === "pending" ||
-    file.needs_ocr
+    file.sources_pending ||
+    file.status_label === "Processing" ||
+    file.status_label === "Uploading"
   ) {
-    return {
-      label: file.needs_ocr && label === "Processing" ? "Deep Scan queued" : label,
-      className: "bg-[#eff6ff] text-[#1d4ed8]",
-    };
+    return { label: "Processing", className: STATUS_PILL.processing };
   }
-  if (file.status === "duplicate" || label.toLowerCase().includes("duplicate")) {
-    return { label, className: "bg-[var(--accent-soft)] text-[var(--accent)]" };
+
+  // OCR-only outcomes: treat uploaded docs as Completed (fingerprinting SoT).
+  const ocrOnly =
+    file.status === "failed" ||
+    file.status === "ocr_unavailable" ||
+    file.status === "ocr_no_text" ||
+    file.status_label === "Failed" ||
+    file.status_label === "OCR unavailable" ||
+    file.status_label === "No readable text";
+  if (ocrOnly && uploaded) {
+    if (hasDuplicates) {
+      return { label: "Duplicate", className: STATUS_PILL.duplicate };
+    }
+    return { label: "Completed", className: STATUS_PILL.completed };
   }
-  return {
-    label,
-    className: "bg-[var(--surface-muted)] text-[var(--ink)]",
-  };
+
+  // Finished and linked to one or more duplicate uploads.
+  if (hasDuplicates) {
+    return { label: "Duplicate", className: STATUS_PILL.duplicate };
+  }
+
+  // Finished cleanly with no linked duplicates.
+  return { label: "Completed", className: STATUS_PILL.completed };
 }
 
 export function isTerminal(file: FileRecord): boolean {
-  if (file.status === "pending" && file.needs_ocr) return false;
+  if (file.status === "pending") return false;
+  if (file.sources_pending) return false;
+  // OCR failure on an uploaded file is terminal Completed for polling.
   return [
     "completed",
     "tier1_done",

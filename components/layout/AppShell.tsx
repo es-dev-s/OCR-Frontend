@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { AuthGate } from "@/components/auth/AuthGate";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Navbar } from "@/components/layout/Navbar";
@@ -22,29 +22,15 @@ import {
 
 type AppShellProps = {
   children: React.ReactNode;
-  /** From cookie on the server so SSR HTML matches collapsed preference. */
-  initialSidebarCollapsed?: boolean;
 };
 
 /**
- * Persistent app chrome (sidebar + navbar). Mounted by the (app) route-group
- * layout so client navigations never remount it — only `<main>` page content swaps.
- *
- * Chrome stays hidden until auth is ready and a user exists, so unauthenticated
- * visits never flash the dashboard before redirecting to /login.
+ * Persistent app chrome (sidebar + navbar + realtime).
+ * Mounted by the (app) route-group layout so client navigations never remount
+ * the shell — only `<main>` page content swaps. Notifications stay live via
+ * RealtimeProvider (SSE), which is tied to the session, not the route.
  */
-export function AppShell({
-  children,
-  initialSidebarCollapsed = false,
-}: AppShellProps) {
-  // Seed before first paint/read so SSR + hydration both see the cookie value.
-  if (
-    !useUIStore.getState().hasHydrated &&
-    useUIStore.getState().sidebarCollapsed !== initialSidebarCollapsed
-  ) {
-    useUIStore.setState({ sidebarCollapsed: initialSidebarCollapsed });
-  }
-
+export function AppShell({ children }: AppShellProps) {
   const collapsed = useUIStore(selectSidebarCollapsed);
   const mobileOpen = useUIStore(selectMobileSidebarOpen);
   const hasHydrated = useUIStore(selectHasHydrated);
@@ -56,12 +42,27 @@ export function AppShell({
   const token = useAuthStore((s) => s.token);
   const hydrateAuth = useAuthStore((s) => s.hydrate);
 
+  // Once chrome has been shown for a session, keep it mounted across route
+  // changes (and brief auth revalidations) so sidebar/navbar don't remount.
+  const [chromeLive, setChromeLive] = useState(false);
+  const showChrome = authReady && Boolean(user || token);
+
   useLayoutEffect(() => {
     hydrateAuth();
   }, [hydrateAuth]);
 
-  // Before paint: align Zustand with SSR/boot/localStorage so reload never
-  // flashes the opposite sidebar width.
+  useEffect(() => {
+    if (showChrome) {
+      setChromeLive(true);
+      return;
+    }
+    if (authReady && !user && !token) {
+      setChromeLive(false);
+    }
+  }, [showChrome, authReady, user, token]);
+
+  // Before paint: align Zustand with boot script / localStorage so hard reload
+  // never flashes the opposite sidebar width.
   useLayoutEffect(() => {
     const preferred = readSidebarCollapsed();
     useUIStore.setState({ sidebarCollapsed: preferred });
@@ -109,17 +110,13 @@ export function AppShell({
     return () => media.removeEventListener("change", onChange);
   }, [closeMobileSidebar]);
 
-  // Keep document-level vars in sync after hydrate (toggle / persist).
   useEffect(() => {
     if (!hasHydrated) return;
     syncSidebarDom(collapsed);
   }, [collapsed, hasHydrated]);
 
-  const showChrome = authReady && Boolean(user || token);
-
-  // Neutral canvas while auth resolves or redirect to login is in flight —
-  // never paint sidebar/navbar for anonymous visitors.
-  if (!showChrome) {
+  // Neutral canvas while auth resolves — never paint chrome for guests.
+  if (!chromeLive) {
     return (
       <div className="min-h-dvh bg-[var(--canvas)] text-[var(--ink)]">
         <AuthGate>{children}</AuthGate>
@@ -129,6 +126,7 @@ export function AppShell({
 
   return (
     <div className="min-h-dvh bg-[var(--canvas)] text-[var(--ink)]">
+      {/* Static chrome — stays mounted while navigating /documents ↔ /review ↔ /users */}
       <div className="hidden lg:block">
         <Sidebar variant="desktop" />
       </div>
@@ -163,6 +161,7 @@ export function AppShell({
 
       <div className="shell-main flex h-dvh flex-col lg:pl-[var(--sidebar-current)]">
         <Navbar />
+        {/* Session-scoped SSE — not tied to the active page */}
         <RealtimeProvider />
         <main className="relative min-h-0 flex-1 overflow-hidden bg-[var(--surface)]">
           <AuthGate>{children}</AuthGate>

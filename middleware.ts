@@ -7,8 +7,13 @@ function isLoginPath(pathname: string): boolean {
   return pathname === "/login" || pathname.startsWith("/login/");
 }
 
+function isPublicSharePath(pathname: string): boolean {
+  return pathname === "/s" || pathname.startsWith("/s/");
+}
+
 function isProtectedPath(pathname: string): boolean {
   if (pathname === "/") return true;
+  if (isPublicSharePath(pathname)) return false;
   return (
     pathname === "/documents" ||
     pathname.startsWith("/documents/") ||
@@ -23,6 +28,7 @@ function isProtectedPath(pathname: string): boolean {
  * Auth routing before HTML paints:
  * - no session -> /login (never flash the dashboard shell)
  * - session on / or /login -> /documents
+ * - /s/{token} is public (page validates token; invalid → login)
  */
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -39,6 +45,10 @@ export function middleware(request: NextRequest) {
   if (pathname === "/") {
     const dest = hasSession ? "/documents" : "/login";
     return NextResponse.redirect(new URL(dest, request.url));
+  }
+
+  if (isPublicSharePath(pathname)) {
+    return NextResponse.next();
   }
 
   if (isProtectedPath(pathname) && !hasSession) {
@@ -61,5 +71,17 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/login", "/login/:path*", "/documents/:path*", "/review/:path*", "/users/:path*", "/documents", "/review", "/users"],
+  matcher: [
+    "/",
+    "/login",
+    "/login/:path*",
+    "/documents/:path*",
+    "/review/:path*",
+    "/users/:path*",
+    "/documents",
+    "/review",
+    "/users",
+    "/s",
+    "/s/:path*",
+  ],
 };

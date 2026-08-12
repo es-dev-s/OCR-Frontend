@@ -116,6 +116,41 @@ body {
   background: transparent;
 }
 
+/*
+ * Compact suggest dropdown scrollbar — thinner than docs-scroll,
+ * stays inside the menu without crowding option text.
+ */
+.meta-suggest-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 32, 0.22) transparent;
+  overscroll-behavior: contain;
+}
+
+.meta-suggest-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.meta-suggest-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 4px;
+}
+
+.meta-suggest-scroll::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 32, 0.16);
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  background-clip: content-box;
+}
+
+.meta-suggest-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 32, 0.32);
+  background-clip: content-box;
+}
+
+.meta-suggest-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: var(--ink);
@@ -144,6 +179,20 @@ body {
 .workspace-band {
   width: 100%;
   max-width: none;
+}
+
+/* Docs table: auto layout so hidden breakpoint columns collapse cleanly */
+.docs-table {
+  table-layout: auto;
+  width: 100%;
+  min-width: 0;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.docs-table th,
+.docs-table td {
+  vertical-align: middle;
 }
 
 /* Shell content tracks sidebar width without a snap after the sidebar eases */

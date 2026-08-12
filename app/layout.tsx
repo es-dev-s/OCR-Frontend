@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/sidebar-pref";
+import { ToastProvider } from "@/components/ui/Toast";
 import "./globals.css";
 
 const sans = Plus_Jakarta_Sans({
@@ -102,7 +103,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           dangerouslySetInnerHTML={{ __html: sidebarBootScript }}
         />
       </head>
-      <body className="min-h-full font-sans">{children}</body>
+      <body className="min-h-full font-sans">
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  displaySourceTitle,
   displayTitle,
   fileContentURL,
   type DocumentSource,
@@ -24,7 +25,7 @@ import {
   type FileRecord,
   type MatchRecord,
 } from "@/lib/api";
-import { formatBytes, formatUploadedAt, validateDocumentFile } from "@/lib/files";
+import { formatBytes, formatUploadedAt, statusMeta, validateDocumentFile } from "@/lib/files";
 import { SOURCE_SLOT_COUNT, SOURCE_SLOTS, isSourceSlot } from "@/lib/sources";
 import {
   IntakeCompareModal,
@@ -82,13 +83,19 @@ function sourceLineMeta(source: DocumentSource): {
   if (validating) {
     return {
       label: "Checking",
-      tone: "text-[#1d4ed8]",
+      tone: "text-[#3b5bcc]",
       confidence: null,
       validating: true,
     };
   }
-  if (source.match_status === "failed") {
-    return { label: "Failed", tone: "text-red-600", confidence, validating: false };
+  // Source-check failure is not a document upload failure — keep quiet.
+  if (source.match_status === "failed" || source.decision === "failed") {
+    return {
+      label: "Unverified",
+      tone: "text-[var(--muted)]",
+      confidence,
+      validating: false,
+    };
   }
   if (source.match_status === "skipped_no_text") {
     return {
@@ -102,8 +109,8 @@ function sourceLineMeta(source: DocumentSource): {
     case "exact_bytes":
     case "auto_duplicate":
       return {
-        label: "Match",
-        tone: "text-orange-600",
+        label: "Duplicate",
+        tone: "text-orange-800",
         confidence,
         validating: false,
       };
@@ -121,13 +128,23 @@ function sourceLineMeta(source: DocumentSource): {
         confidence,
         validating: false,
       };
-    default:
+    default: {
+      const raw = (source.decision_label || "").trim();
+      if (/validation failed/i.test(raw)) {
+        return {
+          label: "Unverified",
+          tone: "text-[var(--muted)]",
+          confidence,
+          validating: false,
+        };
+      }
       return {
-        label: source.decision_label || "Done",
+        label: raw || "Done",
         tone: "text-[var(--muted)]",
         confidence,
         validating: false,
       };
+    }
   }
 }
 
@@ -293,6 +310,7 @@ export function RowDetailAccordion({
   const uploadedLabel = formatUploadedAt(file.uploaded_at);
 
   const busy = loading || replacing || deleting || deepScanning;
+  const rowStatus = statusMeta(file);
 
   return (
     <div
@@ -302,6 +320,11 @@ export function RowDetailAccordion({
       <SourcePreviewModal
         fileId={file.id}
         source={previewSource}
+        documentTitle={
+          previewSource
+            ? displaySourceTitle(file, previewSource)
+            : displayTitle(file)
+        }
         onClose={() => setPreviewSource(null)}
       />
       <MatchCompareModal
@@ -326,17 +349,34 @@ export function RowDetailAccordion({
           {message ? (
             <p className="truncate text-[12px] text-[var(--muted)]">{message}</p>
           ) : (
-            <p className="text-[12px] text-[var(--muted-soft)]">
+            <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-[var(--muted-soft)]">
+              <span
+                className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${rowStatus.className}`}
+              >
+                {rowStatus.label}
+              </span>
+              <span className="text-[var(--border-strong)]">·</span>
               <span
                 className="font-mono text-[11px] text-[var(--muted)]"
                 title={file.sha256_hash}
               >
                 {shortHash(file.sha256_hash)}
               </span>
-              <span className="mx-1.5 text-[var(--border-strong)]">·</span>
-              <span title={file.original_filename}>{file.original_filename}</span>
-              <span className="mx-1.5 text-[var(--border-strong)]">·</span>
+              <span className="text-[var(--border-strong)]">·</span>
+              <span className="tabular-nums">
+                {(file.source_count ?? file.sources?.length ?? 0) || 0}/4 sources
+              </span>
+              <span className="text-[var(--border-strong)]">·</span>
               <span className="tabular-nums">{formatBytes(file.byte_size)}</span>
+              {duplicateCount > 0 && !isApprovedDuplicateRow ? (
+                <>
+                  <span className="text-[var(--border-strong)]">·</span>
+                  <span className="tabular-nums text-orange-800">
+                    {duplicateCount} duplicate
+                    {duplicateCount === 1 ? "" : "s"}
+                  </span>
+                </>
+              ) : null}
             </p>
           )}
         </div>
@@ -536,7 +576,7 @@ export function RowDetailAccordion({
             aria-hidden
           >
             <span>#</span>
-            <span>File</span>
+            <span>Source</span>
             <span>Status</span>
             <span className="text-right">Score</span>
             <span className="text-center">Compare</span>
@@ -559,7 +599,7 @@ export function RowDetailAccordion({
                           className="truncate text-[12.5px] text-[var(--ink)]"
                           title={source.original_filename}
                         >
-                          {source.original_filename}
+                          {displaySourceTitle(file, source)}
                         </p>
                         <p className="truncate text-[10.5px] tabular-nums text-[var(--muted-soft)]">
                           {formatBytes(source.byte_size)}

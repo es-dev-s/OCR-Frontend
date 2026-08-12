@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ExternalLink, FileText, Loader2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import {
+  displaySourceTitle,
   displayTitle,
   fileContentURL,
   getFileStatus,
@@ -351,7 +352,7 @@ export function FileDetailsModal({ open, target, onClose }: Props) {
                           className="truncate text-[11.5px] text-[var(--muted)]"
                           title={s.original_filename}
                         >
-                          {s.original_filename || "—"}
+                          {displaySourceTitle(view, s)}
                           {s.byte_size
                             ? ` · ${formatBytes(s.byte_size)}`
                             : ""}

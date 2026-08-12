@@ -9,6 +9,9 @@ export type SourceKey = `source_${SourceSlotNum}`;
 
 export type DocumentSourcesInput = Partial<Record<SourceKey, File | null>>;
 
+/** Per-slot extracted PDF titles keyed by slot number. */
+export type SourceTitlesInput = Partial<Record<SourceSlotNum, string>>;
+
 export function sourceKey(slot: SourceSlotNum): SourceKey {
   return `source_${slot}`;
 }
@@ -44,9 +47,12 @@ export function hasAnySource(sources: DocumentSourcesInput): boolean {
 export function appendSourcesToFormData(
   body: FormData,
   sources: DocumentSourcesInput,
+  titles?: SourceTitlesInput,
 ): void {
   for (const slot of SOURCE_SLOTS) {
     const f = sources[sourceKey(slot)];
     if (f) body.append(sourceKey(slot), f);
+    const title = titles?.[slot]?.trim();
+    if (title) body.append(`source_${slot}_title`, title);
   }
 }

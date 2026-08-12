@@ -1,13 +1,7 @@
 "use client";
 
-import { Fragment, memo } from "react";
-import {
-  ChevronDown,
-  ExternalLink,
-  FileText,
-  Loader2,
-  Trash2,
-} from "lucide-react";
+import { Fragment, memo, useState } from "react";
+import { ChevronDown, FileText } from "lucide-react";
 import {
   displayTitle,
   type DuplicateRecord,
@@ -15,7 +9,11 @@ import {
   type MatchRecord,
 } from "@/lib/api";
 import { formatUploadedAt, statusMeta } from "@/lib/files";
+import { copyShareURL, isShareToken } from "@/lib/share";
+import { useToast } from "@/components/ui/Toast";
 import { RowDetailAccordion } from "@/components/files/RowDetailAccordion";
+import { RowActionsMenu } from "@/components/files/RowActionsMenu";
+import { docsCell } from "@/components/files/docsTableLayout";
 import { ExpandPanel } from "@/components/ui/ExpandPanel";
 
 export type RowDetail = {
@@ -63,10 +61,29 @@ function DocumentRowImpl({
   const meta = statusMeta(file);
   const count = file.duplicate_count ?? file.duplicates?.length ?? 0;
   const sourceCount = file.source_count ?? file.sources?.length ?? 0;
+  const clientDocCount = file.client_document_count ?? 0;
   const panelId = `doc-panel-${file.id}`;
   const uploading = file.status === "uploading";
-  const title = displayTitle(file);
+  const docTitle = displayTitle(file);
+  const uploaderName = (file.uploader_name || "").trim() || "—";
   const uploadedLabel = formatUploadedAt(file.uploaded_at);
+  const { toast } = useToast();
+  const [linkCopied, setLinkCopied] = useState(false);
+  const shareToken = (file.share_token || "").trim().toLowerCase();
+  const canCopyShare = isShareToken(shareToken) && !uploading;
+
+  const onCopyShare = async () => {
+    if (!canCopyShare) return;
+    const ok = await copyShareURL(shareToken);
+    if (!ok) {
+      toast("Could not copy URL", "neutral");
+      return;
+    }
+    setLinkCopied(true);
+    toast("Copied URL");
+    window.setTimeout(() => setLinkCopied(false), 2000);
+  };
+  // Name column shows the uploader only; keep time / dup hints in the subtitle.
   const subtitle = file.parent_file_id
     ? [
         `Duplicate of ${file.parent_title || "another document"}`,
@@ -78,7 +95,6 @@ function DocumentRowImpl({
         .filter(Boolean)
         .join(" · ")
     : [
-          file.uploader_name || file.member || null,
           uploadedLabel ? `uploaded ${uploadedLabel}` : null,
           count > 0
             ? `${count} duplicate${count === 1 ? "" : "s"}`
@@ -121,7 +137,7 @@ function DocumentRowImpl({
           open ? "bg-[var(--accent-soft)]" : "hover:bg-[var(--canvas)]",
         ].join(" ")}
       >
-        <td className="page-pl py-3 pr-3 sm:pr-4">
+        <td className={docsCell.name}>
           <div className="flex min-w-0 items-center gap-2">
             <span
               className={[
@@ -152,9 +168,9 @@ function DocumentRowImpl({
             <div className="min-w-0">
               <p
                 className="truncate text-[13px] font-medium tracking-[-0.01em] text-[var(--ink)]"
-                title={title}
+                title={uploaderName}
               >
-                {title}
+                {uploaderName}
               </p>
               <p
                 className={[
@@ -171,37 +187,54 @@ function DocumentRowImpl({
           </div>
         </td>
         <td
-          className="px-3 py-3 text-[12.5px] text-[var(--ink)]"
-          title={file.client_name || undefined}
+          className={`${docsCell.client} text-[12.5px] text-[var(--ink)]`}
+          title={
+            file.client_name
+              ? clientDocCount > 0
+                ? `${file.client_name} · ${clientDocCount} document${clientDocCount === 1 ? "" : "s"}`
+                : file.client_name
+              : undefined
+          }
         >
-          <span className="block truncate">{file.client_name || "—"}</span>
+          {file.client_name ? (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 truncate">{file.client_name}</span>
+              {clientDocCount > 0 ? (
+                <span className="inline-flex shrink-0 items-center rounded-md bg-[var(--surface-muted)] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-[var(--muted)]">
+                  {clientDocCount}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <span className="block truncate text-[var(--muted-soft)]">—</span>
+          )}
         </td>
         <td
-          className="px-3 py-3 text-[12.5px] text-[var(--ink)]"
+          className={`${docsCell.erp} text-[12.5px] text-[var(--ink)]`}
           title={file.erp_code || undefined}
         >
           <span className="block truncate">{file.erp_code || "—"}</span>
         </td>
         <td
-          className="px-3 py-3 text-[12.5px] text-[var(--ink)]"
+          className={`${docsCell.team} text-[12.5px] text-[var(--ink)]`}
           title={file.team || undefined}
         >
           <span className="block truncate">{file.team || "—"}</span>
         </td>
         <td
-          className="px-3 py-3 text-[12.5px] tabular-nums text-[var(--ink)]"
+          className={`${docsCell.anzsco} text-[12.5px] tabular-nums text-[var(--ink)]`}
           title={file.anzsco || undefined}
         >
           <span className="block truncate">{file.anzsco || "—"}</span>
         </td>
-        <td className="px-3 py-3">
+        <td className={docsCell.status}>
           <span
-            className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
+            className={`inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-medium ${meta.className}`}
           >
             {meta.label}
           </span>
         </td>
-        <td className="px-3 py-3">
+        <td className={docsCell.sources}>
           {sourceCount > 0 ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
               {sourceCount}/4
@@ -210,50 +243,30 @@ function DocumentRowImpl({
             <span className="text-[12.5px] text-[var(--muted-soft)]">0/4</span>
           )}
         </td>
-        <td className="px-3 py-3 text-[12px] text-[var(--muted)]">
+        <td className={`${docsCell.uploaded} text-[12px] text-[var(--muted)]`}>
           <span className="block truncate">
             {new Date(file.uploaded_at).toLocaleString()}
           </span>
         </td>
         <td
-          className="page-pr py-3 pl-3 text-right sm:pl-4"
+          className={docsCell.actions}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
         >
-          <div className="inline-flex items-center justify-end gap-1">
-            <button
-              type="button"
-              onMouseEnter={() => onPrefetch?.(file.id)}
-              onClick={() => onOpenFile(file.id)}
-              disabled={uploading}
-              className={[
-                "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:cursor-wait disabled:opacity-50",
-                open
-                  ? "bg-white text-[var(--ink)] hover:bg-white/90"
-                  : "text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]",
-              ].join(" ")}
-            >
-              Open
-              <ExternalLink className="size-3.5" strokeWidth={1.75} />
-            </button>
-            <button
-              type="button"
-              onClick={() => onRequestDelete(file)}
-              disabled={deleting || uploading}
-              className={[
-                "inline-flex size-8 cursor-pointer items-center justify-center rounded-lg transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
-                open
-                  ? "bg-white text-red-600 hover:bg-red-50"
-                  : "text-[var(--muted)] hover:bg-red-50 hover:text-red-600",
-              ].join(" ")}
-              aria-label={`Delete ${title}`}
-            >
-              {deleting ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="size-3.5" strokeWidth={1.75} />
-              )}
-            </button>
+          <div className="inline-flex w-full justify-end">
+            <RowActionsMenu
+              docTitle={docTitle}
+              openRow={open}
+              uploading={uploading}
+              deleting={deleting}
+              canCopyShare={canCopyShare}
+              linkCopied={linkCopied}
+              onCopyShare={onCopyShare}
+              onOpen={() => onOpenFile(file.id)}
+              onEdit={() => onEdit(file)}
+              onDelete={() => onRequestDelete(file)}
+              onPrefetch={() => onPrefetch?.(file.id)}
+            />
           </div>
         </td>
       </tr>

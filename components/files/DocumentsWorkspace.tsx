@@ -42,6 +42,9 @@ import {
 } from "@/lib/docsListCache";
 import { AddDocumentModal } from "@/components/files/AddDocumentModal";
 import { DocumentRow, type RowDetail } from "@/components/files/DocumentRow";
+import {
+  DocsTableHead,
+} from "@/components/files/docsTableLayout";
 import { EditDocumentModal } from "@/components/files/EditDocumentModal";
 import { ReviewQueuePanel } from "@/components/files/ReviewQueuePanel";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -231,6 +234,10 @@ export function DocumentsWorkspace() {
       anzsco: next.anzsco ?? prev.anzsco ?? "",
       team: next.team ?? prev.team ?? "",
       member: next.member ?? prev.member ?? "",
+      client_document_count:
+        typeof next.client_document_count === "number"
+          ? next.client_document_count
+          : prev.client_document_count,
       // Provenance fields must survive light polls that omit them.
       parent_file_id:
         next.parent_file_id !== undefined
@@ -855,6 +862,7 @@ export function DocumentsWorkspace() {
         status_label: "Uploading",
         needs_ocr: false,
         uploaded_at: new Date().toISOString(),
+        uploader_name: useAuthStore.getState().user?.name || undefined,
         duplicate_count: 0,
         source_count: 1,
         sources_pending: false,
@@ -1347,49 +1355,8 @@ export function DocumentsWorkspace() {
       >
         {loading && files.length === 0 ? (
           <div className="workspace-band">
-            <table className="w-full min-w-0 table-fixed border-collapse text-left">
-              <colgroup>
-                <col className="w-[22%]" />
-                <col className="w-[12%]" />
-                <col className="w-[10%]" />
-                <col className="w-[10%]" />
-                <col className="w-[10%]" />
-                <col className="w-[10%]" />
-                <col className="w-[8%]" />
-                <col className="w-[10%]" />
-                <col className="w-[8%]" />
-              </colgroup>
-              <thead className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]">
-                <tr className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--muted)]">
-                  <th className="page-pl py-2.5 pr-3 font-medium sm:pr-4" scope="col">
-                    Name
-                  </th>
-                  <th className="px-3 py-2.5 font-medium" scope="col">
-                    Client
-                  </th>
-                  <th className="px-3 py-2.5 font-medium" scope="col">
-                    ERP
-                  </th>
-                  <th className="px-3 py-2.5 font-medium" scope="col">
-                    Team
-                  </th>
-                  <th className="px-3 py-2.5 font-medium" scope="col">
-                    ANZSCO
-                  </th>
-                  <th className="px-3 py-2.5 font-medium" scope="col">
-                    Status
-                  </th>
-                  <th className="px-3 py-2.5 font-medium" scope="col">
-                    Sources
-                  </th>
-                  <th className="px-3 py-2.5 font-medium" scope="col">
-                    Uploaded
-                  </th>
-                  <th className="page-pr py-2.5 pl-3 text-right font-medium sm:pl-4" scope="col">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
+            <table className="docs-table">
+              <DocsTableHead />
               <tbody>
                 {Array.from({ length: 8 }).map((_, i) => (
                   <tr key={i} className="border-b border-[var(--border)]">
@@ -1460,49 +1427,8 @@ export function DocumentsWorkspace() {
           </div>
         ) : (
           <div className="workspace-band">
-          <table className="w-full min-w-0 table-fixed border-collapse text-left">
-            <colgroup>
-              <col className="w-[22%]" />
-              <col className="w-[12%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[10%]" />
-              <col className="w-[8%]" />
-              <col className="w-[10%]" />
-              <col className="w-[8%]" />
-            </colgroup>
-            <thead className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface)]">
-              <tr className="text-[11px] font-medium uppercase tracking-[0.05em] text-[var(--muted)]">
-                <th className="page-pl py-2.5 pr-3 font-medium sm:pr-4" scope="col">
-                  Name
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Client
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  ERP
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Team
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  ANZSCO
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Status
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Sources
-                </th>
-                <th className="px-3 py-2.5 font-medium" scope="col">
-                  Uploaded
-                </th>
-                <th className="page-pr py-2.5 pl-3 text-right font-medium sm:pl-4" scope="col">
-                  Actions
-                </th>
-              </tr>
-            </thead>
+          <table className="docs-table">
+            <DocsTableHead />
             <tbody>
               {padTop > 0 && (
                 <tr aria-hidden>
